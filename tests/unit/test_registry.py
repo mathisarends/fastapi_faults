@@ -4,7 +4,12 @@ from typing import cast
 
 import pytest
 
-from fastapi_faults import Fault, FaultConfigurationError, FaultRegistry
+from fastapi_faults import (
+    Fault,
+    FaultConfigurationError,
+    FaultRegistry,
+    WebSocketFault,
+)
 
 
 class DomainError(Exception):
@@ -43,6 +48,13 @@ def make_fault(
         type=type_uri,
         schema_name=schema_name,
     )
+
+
+def make_websocket_fault(
+    exception: type[Exception], close_code: int
+) -> WebSocketFault[Exception]:
+    factory = cast("Callable[..., WebSocketFault[Exception]]", WebSocketFault)
+    return factory(exception, close_code=close_code)
 
 
 def test_registry_preserves_order_and_resolves_type_base() -> None:
@@ -91,6 +103,14 @@ def test_registry_rejects_invalid_type_base(type_base: object) -> None:
 def test_registry_rejects_non_fault_members() -> None:
     with pytest.raises(FaultConfigurationError):
         FaultRegistry(faults=[object()])  # type: ignore[list-item]
+
+
+def test_registry_rejects_non_websocket_fault_members() -> None:
+    with pytest.raises(FaultConfigurationError):
+        FaultRegistry(
+            faults=[],
+            websocket_faults=[object()],  # type: ignore[list-item]
+        )
 
 
 def test_registry_retains_explicit_type() -> None:
@@ -203,6 +223,49 @@ def test_nested_diamond_merge_deduplicates_shared_fault() -> None:
     assert merged.faults == (shared,)
 
 
+def test_registry_composes_and_deduplicates_websocket_faults() -> None:
+    shared = make_websocket_fault(SessionNotFound, 4001)
+    base = FaultRegistry(faults=[], websocket_faults=[shared, shared], name="base")
+    left = FaultRegistry.merge(base, name="left")
+    right = FaultRegistry.merge(base, name="right")
+
+    merged = FaultRegistry.merge(left, right, name="api")
+
+    assert base.websocket_faults == (shared,)
+    assert merged.websocket_faults == (shared,)
+    assert merged._contains_websocket(shared)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "dimension"),
+    [
+        (
+            make_websocket_fault(SessionNotFound, 4001),
+            make_websocket_fault(SessionNotFound, 4002),
+            "exception class",
+        ),
+        (
+            make_websocket_fault(SessionNotFound, 4001),
+            make_websocket_fault(AccountNotFound, 4001),
+            "close code",
+        ),
+    ],
+)
+def test_registry_rejects_websocket_collisions(
+    first: WebSocketFault[Exception],
+    second: WebSocketFault[Exception],
+    dimension: str,
+) -> None:
+    first_registry = FaultRegistry(faults=[], websocket_faults=[first], name="first")
+    second_registry = FaultRegistry(faults=[], websocket_faults=[second], name="second")
+
+    with pytest.raises(FaultConfigurationError, match=dimension) as error:
+        FaultRegistry.merge(first_registry, second_registry)
+
+    assert "first" in str(error.value)
+    assert "second" in str(error.value)
+
+
 def test_merge_retains_feature_type_base_and_fills_unresolved_faults() -> None:
     session = make_fault(SessionNotFound, "session_not_found")
     account = make_fault(AccountNotFound, "account_not_found")
@@ -295,6 +358,23 @@ def test_resolution_uses_most_specific_registered_mro_class() -> None:
     assert registry.resolve(ExpiredSession()) is missing
     assert registry.resolve(AccountNotFound()) is domain
     assert registry.resolve(UnknownError()) is None
+
+
+def test_websocket_resolution_uses_most_specific_registered_mro_class() -> None:
+    domain = make_websocket_fault(DomainError, 4001)
+    missing = make_websocket_fault(SessionNotFound, 4002)
+    registry = FaultRegistry(faults=[], websocket_faults=[domain, missing])
+
+    assert registry.resolve_websocket(ExpiredSession()) is missing
+    assert registry.resolve_websocket(AccountNotFound()) is domain
+    assert registry.resolve_websocket(UnknownError()) is None
+
+
+def test_registry_rejects_foreign_websocket_membership() -> None:
+    registry = FaultRegistry(faults=[])
+    foreign = make_websocket_fault(SessionNotFound, 4001)
+
+    assert not registry._contains_websocket(foreign)
 
 
 def test_registry_rejects_lookup_for_foreign_fault() -> None:

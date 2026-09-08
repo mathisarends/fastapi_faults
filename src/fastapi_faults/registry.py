@@ -6,14 +6,22 @@ from urllib.parse import urlsplit
 
 from ._types import FaultConfigurationError, is_absolute_uri
 from .fault import Fault
+from .websocket import WebSocketFault
 
 type AnyFault = Fault[Any]
+type AnyWebSocketFault = WebSocketFault[Any]
 
 
 @dataclass(frozen=True, slots=True)
 class _RegistryEntry:
     fault: AnyFault
     type_uri: str | None
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class _WebSocketRegistryEntry:
+    fault: AnyWebSocketFault
     source: str
 
 
@@ -24,13 +32,17 @@ class FaultRegistry:
     name: str | None
     type_base: str | None
     _entries: tuple[_RegistryEntry, ...]
+    _websocket_entries: tuple[_WebSocketRegistryEntry, ...]
     _by_exception: MappingProxyType[type[Exception], _RegistryEntry]
     _by_identity: MappingProxyType[int, _RegistryEntry]
+    _websocket_by_exception: MappingProxyType[type[Exception], _WebSocketRegistryEntry]
+    _websocket_by_identity: MappingProxyType[int, _WebSocketRegistryEntry]
 
     def __init__(
         self,
         *,
         faults: Sequence[AnyFault],
+        websocket_faults: Sequence[AnyWebSocketFault] = (),
         name: str | None = None,
         type_base: str | None = None,
     ) -> None:
@@ -38,6 +50,7 @@ class FaultRegistry:
         normalized_base = _validate_type_base(type_base)
         source = normalized_name or "<anonymous>"
         entries: list[_RegistryEntry] = []
+        websocket_entries: list[_WebSocketRegistryEntry] = []
         seen_identities: set[int] = set()
 
         for index, candidate in enumerate(cast("Sequence[object]", faults)):
@@ -57,8 +70,25 @@ class FaultRegistry:
                 )
             )
 
+        seen_websocket_identities: set[int] = set()
+        for index, candidate in enumerate(cast("Sequence[object]", websocket_faults)):
+            websocket_fault = candidate
+            if not isinstance(websocket_fault, WebSocketFault):
+                msg = f"websocket_faults[{index}] must be a WebSocketFault instance"
+                raise FaultConfigurationError(msg)
+            identity = id(websocket_fault)
+            if identity in seen_websocket_identities:
+                continue
+            seen_websocket_identities.add(identity)
+            websocket_entries.append(
+                _WebSocketRegistryEntry(fault=websocket_fault, source=source)
+            )
+
         self._initialize(
-            entries=tuple(entries), name=normalized_name, type_base=normalized_base
+            entries=tuple(entries),
+            websocket_entries=tuple(websocket_entries),
+            name=normalized_name,
+            type_base=normalized_base,
         )
 
     @classmethod
@@ -72,7 +102,9 @@ class FaultRegistry:
         normalized_name = _validate_name(name)
         normalized_base = _validate_type_base(type_base)
         merged: list[_RegistryEntry] = []
+        merged_websocket: list[_WebSocketRegistryEntry] = []
         identities: dict[int, int] = {}
+        websocket_identities: set[int] = set()
 
         for index, candidate in enumerate(cast("tuple[object, ...]", registries)):
             registry = candidate
@@ -105,6 +137,12 @@ class FaultRegistry:
                         type_uri=entry.type_uri,
                         source=previous.source,
                     )
+            for websocket_entry in registry._websocket_entries:
+                identity = id(websocket_entry.fault)
+                if identity in websocket_identities:
+                    continue
+                websocket_identities.add(identity)
+                merged_websocket.append(websocket_entry)
 
         resolved = tuple(
             entry
@@ -118,7 +156,10 @@ class FaultRegistry:
         )
         instance = object.__new__(cls)
         instance._initialize(
-            entries=resolved, name=normalized_name, type_base=normalized_base
+            entries=resolved,
+            websocket_entries=tuple(merged_websocket),
+            name=normalized_name,
+            type_base=normalized_base,
         )
         return instance
 
@@ -133,10 +174,23 @@ class FaultRegistry:
     def __len__(self) -> int:
         return len(self._entries)
 
+    @property
+    def websocket_faults(self) -> tuple[AnyWebSocketFault, ...]:
+        """Return WebSocket close definitions in deterministic order."""
+        return tuple(entry.fault for entry in self._websocket_entries)
+
     def resolve(self, exception: Exception) -> AnyFault | None:
         """Resolve the most specific registered fault through normal Python MRO."""
         for exception_class in type(exception).__mro__:
             entry = self._by_exception.get(exception_class)
+            if entry is not None:
+                return entry.fault
+        return None
+
+    def resolve_websocket(self, exception: Exception) -> AnyWebSocketFault | None:
+        """Resolve the most specific registered WebSocket fault through MRO."""
+        for exception_class in type(exception).__mro__:
+            entry = self._websocket_by_exception.get(exception_class)
             if entry is not None:
                 return entry.fault
         return None
@@ -160,20 +214,38 @@ class FaultRegistry:
             )
             raise FaultConfigurationError(msg)
 
+    def _contains_websocket(self, fault: AnyWebSocketFault) -> bool:
+        entry = self._websocket_by_identity.get(id(fault))
+        return entry is not None and entry.fault is fault
+
     def _initialize(
         self,
         *,
         entries: tuple[_RegistryEntry, ...],
+        websocket_entries: tuple[_WebSocketRegistryEntry, ...],
         name: str | None,
         type_base: str | None,
     ) -> None:
         by_exception = _validate_collisions(entries)
+        websocket_by_exception = _validate_websocket_collisions(websocket_entries)
         by_identity = {id(entry.fault): entry for entry in entries}
+        websocket_by_identity = {id(entry.fault): entry for entry in websocket_entries}
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "type_base", type_base)
         object.__setattr__(self, "_entries", entries)
+        object.__setattr__(self, "_websocket_entries", websocket_entries)
         object.__setattr__(self, "_by_exception", MappingProxyType(by_exception))
         object.__setattr__(self, "_by_identity", MappingProxyType(by_identity))
+        object.__setattr__(
+            self,
+            "_websocket_by_exception",
+            MappingProxyType(websocket_by_exception),
+        )
+        object.__setattr__(
+            self,
+            "_websocket_by_identity",
+            MappingProxyType(websocket_by_identity),
+        )
 
 
 def _validate_name(value: object) -> str | None:
@@ -251,4 +323,47 @@ def _collision_error(
         f"conflicting {dimension} {value!r}: fault {first.fault.code!r} from "
         f"registry {first.source!r} conflicts with fault {second.fault.code!r} "
         f"from registry {second.source!r}"
+    )
+
+
+def _validate_websocket_collisions(
+    entries: tuple[_WebSocketRegistryEntry, ...],
+) -> dict[type[Exception], _WebSocketRegistryEntry]:
+    by_exception: dict[type[Exception], _WebSocketRegistryEntry] = {}
+    by_close_code: dict[int, _WebSocketRegistryEntry] = {}
+
+    for entry in entries:
+        previous_exception = by_exception.get(entry.fault.exception)
+        if (
+            previous_exception is not None
+            and previous_exception.fault is not entry.fault
+        ):
+            raise _websocket_collision_error(
+                "exception class",
+                entry.fault.exception,
+                previous_exception,
+                entry,
+            )
+        previous_code = by_close_code.get(entry.fault.close_code)
+        if previous_code is not None and previous_code.fault is not entry.fault:
+            raise _websocket_collision_error(
+                "close code", entry.fault.close_code, previous_code, entry
+            )
+        by_exception[entry.fault.exception] = entry
+        by_close_code[entry.fault.close_code] = entry
+
+    return by_exception
+
+
+def _websocket_collision_error(
+    dimension: str,
+    value: object,
+    first: _WebSocketRegistryEntry,
+    second: _WebSocketRegistryEntry,
+) -> FaultConfigurationError:
+    return FaultConfigurationError(
+        f"conflicting WebSocket {dimension} {value!r}: definition for "
+        f"{first.fault.exception.__qualname__!r} from registry {first.source!r} "
+        f"conflicts with {second.fault.exception.__qualname__!r} from registry "
+        f"{second.source!r}"
     )
