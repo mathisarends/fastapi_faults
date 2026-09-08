@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, params
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.types import DecoratedCallable
+from starlette.routing import compile_path
 from starlette.websockets import WebSocketState
 
 from ._types import FaultConfigurationError
@@ -86,6 +87,31 @@ class FaultRouter(APIRouter):
         effective_faults = _ordered_identity_union(self.raises, operation_faults)
         marked_endpoint = _with_http_metadata(endpoint, effective_faults, replace=True)
         super().add_api_route(path, marked_endpoint, **kwargs)
+
+    def add_api_websocket_route(
+        self,
+        path: str,
+        endpoint: Callable[..., Any],
+        name: str | None = None,
+        *,
+        dependencies: Sequence[params.Depends] | None = None,
+    ) -> None:
+        metadata = _get_websocket_metadata(endpoint)
+        if metadata is not None:
+            metadata = _WebSocketMetadata(
+                registry=metadata.registry,
+                handshake_raises=_ordered_identity_union(
+                    self.handshake_raises, metadata.handshake_raises
+                ),
+                closes=_ordered_identity_union(self.closes, metadata.closes),
+            )
+            endpoint = _with_websocket_metadata(endpoint, metadata)
+        super().add_api_websocket_route(
+            path,
+            endpoint,
+            name=name,
+            dependencies=dependencies,
+        )
 
     def get(
         self,
@@ -251,6 +277,18 @@ _install_http_signatures()
 def _get_websocket_metadata(endpoint: object) -> _WebSocketMetadata | None:
     metadata = getattr(endpoint, _METADATA_ATTRIBUTE, None)
     return metadata if isinstance(metadata, _WebSocketMetadata) else None
+
+
+def _with_websocket_metadata(
+    endpoint: Callable[..., Any], metadata: _WebSocketMetadata
+) -> Callable[..., Any]:
+    @wraps(endpoint)
+    async def marked_endpoint(*args: Any, **kwargs: Any) -> object:
+        result = endpoint(*args, **kwargs)
+        return await cast("Awaitable[object]", result)
+
+    setattr(marked_endpoint, _METADATA_ATTRIBUTE, metadata)
+    return marked_endpoint
 
 
 def _get_http_metadata(endpoint: object) -> _HttpMetadata | None:
@@ -427,6 +465,7 @@ async def _handle_endpoint_exception(
     exception: Exception,
     metadata: _WebSocketMetadata,
 ) -> bool:
+    metadata = _effective_websocket_metadata(websocket, metadata)
     if websocket.application_state == WebSocketState.CONNECTING:
         handshake_fault = _resolve_declared(exception, metadata.handshake_raises)
         if handshake_fault is None:
@@ -454,6 +493,51 @@ async def _handle_endpoint_exception(
         return True
 
     return False
+
+
+def _effective_websocket_metadata(
+    websocket: WebSocket, metadata: _WebSocketMetadata
+) -> _WebSocketMetadata:
+    app = websocket.scope.get("app")
+    router = getattr(app, "router", None)
+    routes = getattr(app, "routes", None)
+    if not isinstance(router, APIRouter) or not isinstance(routes, Sequence):
+        return metadata
+    contracts = list(_iter_websocket_contracts(router))
+    contexts = _effective_websocket_routes(routes)
+    if len(contracts) != len(contexts):
+        return metadata
+    request_path = str(websocket.scope.get("path", ""))
+    for (route, handshake, closes), context in zip(contracts, contexts, strict=True):
+        original = getattr(context, "original_route", context)
+        if original is not route:
+            return metadata
+        effective_route = getattr(context, "starlette_route", None)
+        path = str(
+            getattr(effective_route, "path", None)
+            or getattr(context, "path", None)
+            or route.path
+        )
+        pattern, _, _ = compile_path(path)
+        if pattern.fullmatch(request_path):
+            return _WebSocketMetadata(
+                registry=metadata.registry,
+                handshake_raises=handshake,
+                closes=closes,
+            )
+    return metadata
+
+
+def _effective_websocket_routes(routes: Sequence[Any]) -> list[object]:
+    try:
+        from fastapi.routing import iter_route_contexts
+    except ImportError:
+        return [route for route in routes if isinstance(route, APIWebSocketRoute)]
+    return [
+        context
+        for context in iter_route_contexts(routes)
+        if isinstance(getattr(context, "original_route", None), APIWebSocketRoute)
+    ]
 
 
 async def _deny_handshake(

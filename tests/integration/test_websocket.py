@@ -307,3 +307,67 @@ async def test_handshake_denial_requires_asgi_extension() -> None:
 
     with pytest.raises(RuntimeError, match=r"websocket\.http\.response"):
         await _deny_handshake(websocket, missing, SessionNotFound(), registry)
+
+
+def test_outer_router_websocket_close_default_applies_after_lazy_inclusion() -> None:
+    expired = WebSocketFault(SessionExpired, close_code=4001, reason="Expired")
+    registry = FaultRegistry(faults=[], websocket_faults=[expired])
+    inner = registry.router()
+
+    @inner.websocket("/events")
+    async def endpoint(websocket: WebSocket) -> None:
+        await websocket.accept()
+        raise SessionExpired
+
+    outer = registry.router(prefix="/outer", closes=[expired])
+    outer.include_router(inner)
+    app = FastAPI()
+    app.include_router(outer)
+    registry.install(
+        app,
+        include_validation_error=False,
+        include_http_exceptions=False,
+        include_unhandled_error=False,
+    )
+
+    with (
+        pytest.raises(WebSocketDisconnect) as error,
+        TestClient(app).websocket_connect("/outer/events") as websocket,
+    ):
+        websocket.receive_text()
+
+    assert error.value.code == 4001
+    assert error.value.reason == "Expired"
+
+
+def test_outer_router_handshake_default_applies_after_lazy_inclusion() -> None:
+    missing = Fault(
+        SessionNotFound,
+        status=404,
+        code="session_not_found",
+        title="Session not found",
+    )
+    registry = FaultRegistry(
+        faults=[missing], type_base="https://example.test/problems"
+    )
+    inner = registry.router()
+
+    @inner.websocket("/events")
+    async def endpoint(websocket: WebSocket) -> None:
+        del websocket
+        raise SessionNotFound
+
+    outer = registry.router(prefix="/outer", handshake_raises=[missing])
+    outer.include_router(inner)
+    app = FastAPI()
+    app.include_router(outer)
+    registry.install(app)
+
+    with (
+        pytest.raises(WebSocketDenialResponse) as error,
+        TestClient(app).websocket_connect("/outer/events"),
+    ):
+        pass
+
+    assert error.value.status_code == 404
+    assert error.value.json()["code"] == "session_not_found"

@@ -22,6 +22,7 @@ from .router import (
     _ENDPOINT_ENTERED_SCOPE_KEY,
     _INSTALLED_REGISTRY_STATE_KEY,
     _deny_handshake,
+    _effective_websocket_metadata,
     _get_websocket_metadata,
     _iter_http_contracts,
     _iter_websocket_contracts,
@@ -170,6 +171,7 @@ async def _handle_dependency_fault(
     metadata = _get_websocket_metadata(getattr(route, "endpoint", None))
     if metadata is None:
         raise exception
+    metadata = _effective_websocket_metadata(websocket, metadata)
     fault = _resolve_declared(exception, metadata.handshake_raises)
     if fault is None:
         raise exception
