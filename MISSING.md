@@ -6,7 +6,7 @@ tests are committed together.
 
 ## Release blockers
 
-- [ ] Complete HTTP `FaultRouter` ergonomics.
+- [x] Complete HTTP `FaultRouter` ergonomics.
   - Accept `raises` on every FastAPI HTTP path-operation decorator.
   - Union outer-router, inner-router, and operation faults in deterministic,
     identity-preserving order.
@@ -44,7 +44,7 @@ tests are committed together.
 - [ ] Add focused integration coverage for framework 404/405 responses,
   request validation in every input location, response validation, debug mode,
   callback failures, custom handlers, and custom response classes.
-- [ ] Add automated FastAPI decorator-signature parity checks.
+- [x] Add automated FastAPI decorator-signature parity checks.
 - [ ] Exercise the declared lowest and newest compatible FastAPI, Starlette,
   and Pydantic versions in CI without rewriting the committed lockfile.
 - [ ] Run the complete CI workflow on the hosted repository.

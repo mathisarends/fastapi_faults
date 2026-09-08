@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from inspect import signature
 from typing import Any, cast
 
 import pytest
@@ -178,3 +179,22 @@ def test_same_callable_can_have_independent_fault_contracts() -> None:
         contracts[route.path] = metadata.raises
 
     assert contracts == {"/missing": (missing,), "/conflict": (conflict,)}
+
+
+@pytest.mark.parametrize(
+    "decorator_name",
+    ["api_route", "get", "post", "put", "patch", "delete", "options", "head", "trace"],
+)
+def test_http_decorator_signature_tracks_fastapi(decorator_name: str) -> None:
+    base = signature(getattr(APIRouter, decorator_name))
+    fault_aware = signature(
+        getattr(type(FaultRegistry(faults=[]).router()), decorator_name)
+    )
+    fault_parameters = dict(fault_aware.parameters)
+
+    assert fault_parameters.pop("raises").default == ()
+    assert list(fault_parameters) == list(base.parameters)
+    for name, parameter in base.parameters.items():
+        candidate = fault_parameters[name]
+        assert candidate.kind == parameter.kind
+        assert candidate.default == parameter.default

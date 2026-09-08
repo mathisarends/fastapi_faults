@@ -2,7 +2,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import wraps
-from inspect import iscoroutinefunction
+from inspect import Parameter, iscoroutinefunction, signature
 from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, params
@@ -207,6 +207,45 @@ class FaultRouter(APIRouter):
 
 
 Router = FaultRouter
+
+
+def _install_http_signatures() -> None:
+    for name in (
+        "api_route",
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "options",
+        "head",
+        "trace",
+    ):
+        base = signature(getattr(APIRouter, name))
+        parameters = list(base.parameters.values())
+        insert_at = next(
+            (
+                index
+                for index, parameter in enumerate(parameters)
+                if parameter.name == "responses"
+            ),
+            len(parameters),
+        )
+        parameters.insert(
+            insert_at + 1,
+            Parameter(
+                "raises",
+                kind=Parameter.KEYWORD_ONLY,
+                default=(),
+                annotation=Sequence[AnyFault],
+            ),
+        )
+        cast("Any", getattr(FaultRouter, name)).__signature__ = base.replace(
+            parameters=parameters
+        )
+
+
+_install_http_signatures()
 
 
 def _get_websocket_metadata(endpoint: object) -> _WebSocketMetadata | None:
