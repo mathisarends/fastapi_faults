@@ -39,7 +39,7 @@ tests are committed together.
 
 ## Hardening
 
-- [ ] Add `fastapi_faults.testing` helpers for contract and undeclared-fault
+- [x] Add `fastapi_faults.testing` helpers for contract and undeclared-fault
   assertions.
 - [ ] Add focused integration coverage for framework 404/405 responses,
   request validation in every input location, response validation, debug mode,
