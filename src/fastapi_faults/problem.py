@@ -1,4 +1,8 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+import math
+from collections.abc import Mapping
+from typing import Any, cast
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ._types import CODE_PATTERN, JsonValue, is_absolute_uri, is_uri_reference
 
@@ -8,7 +12,7 @@ class Problem(BaseModel):
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
-    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
+    __pydantic_extra__: dict[str, Any] = Field(init=False)
 
     type: str
     title: str
@@ -57,6 +61,31 @@ class Problem(BaseModel):
             raise ValueError(msg)
         return value
 
+    @model_validator(mode="after")
+    def _validate_extensions(self) -> "Problem":
+        for name, value in (self.__pydantic_extra__ or {}).items():
+            if not _is_json_value(value):
+                msg = f"extension member {name!r} must be JSON-serializable"
+                raise ValueError(msg)
+        return self
+
     def as_dict(self) -> dict[str, JsonValue]:
         """Serialize to a JSON-native object, omitting absent optional members."""
-        return self.model_dump(mode="json", exclude_none=True)
+        return cast(
+            "dict[str, JsonValue]",
+            self.model_dump(mode="json", exclude_none=True),
+        )
+
+
+def _is_json_value(value: object) -> bool:
+    if value is None or isinstance(value, bool | int | str):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list | tuple):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, Mapping):
+        return all(
+            isinstance(key, str) and _is_json_value(item) for key, item in value.items()
+        )
+    return False

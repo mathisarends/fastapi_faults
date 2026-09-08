@@ -77,3 +77,17 @@ def test_problem_rejects_non_json_extension_values() -> None:
                 "invalid": object(),
             }
         )
+
+
+@pytest.mark.parametrize("value", [float("inf"), {"nested": object()}])
+def test_problem_rejects_invalid_nested_json_values(value: object) -> None:
+    with pytest.raises(ValidationError):
+        Problem.model_validate(
+            {
+                "type": "urn:example:problem",
+                "title": "Example problem",
+                "status": 400,
+                "code": "example_problem",
+                "invalid": value,
+            }
+        )

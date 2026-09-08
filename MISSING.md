@@ -45,7 +45,7 @@ tests are committed together.
   request validation in every input location, response validation, debug mode,
   callback failures, custom handlers, and custom response classes.
 - [x] Add automated FastAPI decorator-signature parity checks.
-- [ ] Exercise the declared lowest and newest compatible FastAPI, Starlette,
+- [x] Exercise the declared lowest and newest compatible FastAPI, Starlette,
   and Pydantic versions in CI without rewriting the committed lockfile.
 - [ ] Run the complete CI workflow on the hosted repository.
 
