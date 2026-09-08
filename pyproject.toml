@@ -4,8 +4,72 @@ version = "0.1.0"
 description = "RFC 9457 problem details for ergonomic FastAPI error contracts"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
-dependencies = []
+keywords = ["fastapi", "openapi", "problem-details", "rfc-9457"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastapi>=0.115,<1",
+    "pydantic>=2.9,<3",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fastapi_faults"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "jsonschema>=4.23",
+    "mypy>=1.15",
+    "openapi-spec-validator>=0.7.1",
+    "pytest>=8.3",
+    "pytest-cov>=6",
+    "ruff>=0.11",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests", "examples"]
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+pretty = true
+show_error_codes = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=fastapi_faults",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=100",
+]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["fastapi_faults"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
