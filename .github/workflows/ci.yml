@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python }}, ${{ matrix.resolution }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+            resolution: locked
+          - os: ubuntu-latest
+            python: "3.13"
+            resolution: locked
+          - os: ubuntu-latest
+            python: "3.14"
+            resolution: locked
+          - os: ubuntu-latest
+            python: "3.12"
+            resolution: lowest-direct
+          - os: ubuntu-latest
+            python: "3.14"
+            resolution: latest
+          - os: windows-latest
+            python: "3.14"
+            resolution: locked
+          - os: macos-latest
+            python: "3.14"
+            resolution: locked
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - if: matrix.resolution == 'locked'
+        run: uv sync --frozen --all-groups
+      - if: matrix.resolution == 'lowest-direct'
+        run: uv lock --upgrade --resolution lowest-direct
+      - if: matrix.resolution == 'latest'
+        run: uv lock --upgrade --resolution highest
+      - if: matrix.resolution != 'locked'
+        run: uv sync --frozen --all-groups
+      - run: uv run pytest
+
+  package:
+    name: Build and clean-wheel install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv build
+      - run: uv venv --python 3.14 .wheel-venv
+      - run: uv pip install --python .wheel-venv/bin/python dist/*.whl
+      - run: >-
+          .wheel-venv/bin/python -I -c
+          "import fastapi_faults; assert fastapi_faults.__name__ == 'fastapi_faults'"
