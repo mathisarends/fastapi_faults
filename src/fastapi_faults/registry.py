@@ -1,12 +1,17 @@
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 from urllib.parse import urlsplit
 
 from ._types import FaultConfigurationError, is_absolute_uri
 from .fault import Fault
 from .websocket import WebSocketFault
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from .router import FaultRouter
 
 type AnyFault = Fault[Any]
 type AnyWebSocketFault = WebSocketFault[Any]
@@ -202,6 +207,10 @@ class FaultRegistry:
             raise FaultConfigurationError(msg)
         return entry.type_uri
 
+    def _contains(self, fault: AnyFault) -> bool:
+        entry = self._by_identity.get(id(fault))
+        return entry is not None and entry.fault is fault
+
     def _require_resolved(self) -> None:
         unresolved = [
             entry.fault.code for entry in self._entries if entry.type_uri is None
@@ -217,6 +226,31 @@ class FaultRegistry:
     def _contains_websocket(self, fault: AnyWebSocketFault) -> bool:
         entry = self._websocket_by_identity.get(id(fault))
         return entry is not None and entry.fault is fault
+
+    def router(self, **kwargs: Any) -> "FaultRouter":
+        """Create a router bound to this feature registry."""
+        from .router import FaultRouter
+
+        return FaultRouter(registry=self, **kwargs)
+
+    def install(
+        self,
+        app: "FastAPI",
+        *,
+        include_validation_error: bool = True,
+        include_http_exceptions: bool = True,
+        include_unhandled_error: bool = True,
+    ) -> None:
+        """Install runtime handlers for HTTP and WebSocket fault mappings."""
+        from .handlers import install_handlers
+
+        install_handlers(
+            self,
+            app,
+            include_validation_error=include_validation_error,
+            include_http_exceptions=include_http_exceptions,
+            include_unhandled_error=include_unhandled_error,
+        )
 
     def _initialize(
         self,
