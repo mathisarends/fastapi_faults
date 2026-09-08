@@ -1,7 +1,3 @@
-"""Shared internal types and configuration validation helpers."""
-
-from __future__ import annotations
-
 import re
 from collections.abc import Mapping
 from typing import Protocol, TypeVar

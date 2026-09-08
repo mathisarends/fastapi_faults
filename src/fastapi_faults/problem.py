@@ -1,7 +1,3 @@
-"""RFC 9457 Problem Details models."""
-
-from __future__ import annotations
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ._types import CODE_PATTERN, JsonValue, is_absolute_uri, is_uri_reference

@@ -1,7 +1,3 @@
-"""Immutable mappings from domain exceptions to Problem Details contracts."""
-
-from __future__ import annotations
-
 import builtins
 import math
 import re
