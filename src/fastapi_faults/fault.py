@@ -145,7 +145,10 @@ class Fault[ExceptionT: Exception]:
             except ValidationError as error:
                 msg = "static extensions do not validate against extensions_model"
                 raise FaultConfigurationError(msg) from error
-            serialized = cast("dict[str, JsonValue]", validated.model_dump(mode="json"))
+            serialized = cast(
+                "dict[str, JsonValue]",
+                validated.model_dump(mode="json", by_alias=True),
+            )
             frozen_extensions = _freeze_json_mapping(serialized, path="extensions")
         object.__setattr__(self, "extensions", frozen_extensions)
 
