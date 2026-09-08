@@ -233,6 +233,12 @@ class FaultRegistry:
 
         return FaultRouter(registry=self, **kwargs)
 
+    def responses(self, *faults: AnyFault) -> dict[int | str, dict[str, Any]]:
+        """Compile fault responses for a stock FastAPI APIRouter."""
+        from .openapi import compile_responses
+
+        return compile_responses(self, faults)
+
     def install(
         self,
         app: "FastAPI",

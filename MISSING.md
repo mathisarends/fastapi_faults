@@ -18,10 +18,10 @@ tests are committed together.
     application registry.
   - Perform validation during installation, before the first request or
     OpenAPI generation.
-- [ ] Add the stock `APIRouter` escape hatch.
+- [x] Add the stock `APIRouter` escape hatch.
   - Implement `FaultRegistry.responses(*faults)`.
   - Reuse the same response compiler as `FaultRouter`.
-- [ ] Implement the OpenAPI 3.1 compiler.
+- [x] Implement the OpenAPI 3.1 compiler.
   - Add the reusable `Problem` schema and deterministic per-fault components.
   - Emit `application/problem+json` responses for declared faults.
   - Emit a discriminated `oneOf` for multiple faults sharing a status.
@@ -32,7 +32,7 @@ tests are committed together.
     pre-existing custom OpenAPI wrappers.
   - Fail loudly on component or manual problem-schema conflicts.
   - Preserve FastAPI OpenAPI caching.
-- [ ] Prove runtime/OpenAPI parity with contract tests.
+- [x] Prove runtime/OpenAPI parity with contract tests.
   - Validate generated documents with an independent OpenAPI 3.1 validator.
   - Validate real runtime payloads against their exact documented schema.
   - Assert status, media type, constants, examples, and documented headers.

@@ -15,6 +15,7 @@ from starlette.responses import Response
 from starlette.types import ExceptionHandler
 
 from ._types import FaultConfigurationError, JsonValue
+from .openapi import install_openapi
 from .registry import FaultRegistry
 from .rendering import render_problem
 from .router import (
@@ -89,6 +90,11 @@ def install_handlers(
         _ensure_handler_available(app, Exception)
         app.add_exception_handler(Exception, _unhandled_handler(registry))
 
+    install_openapi(
+        registry,
+        app,
+        include_validation_error=include_validation_error,
+    )
     setattr(app.state, _INSTALLED_REGISTRY_STATE_KEY, registry)
 
 
