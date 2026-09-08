@@ -1,20 +1,18 @@
-from collections.abc import Callable
+﻿from collections.abc import Callable
 from typing import cast
 
 import pytest
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.testclient import WebSocketDenialResponse
 
 from fastapi_faults import (
     Fault,
     FaultConfigurationError,
     FaultRegistry,
-    WebSocketFault,
 )
 
 
@@ -206,42 +204,6 @@ def test_unhandled_exception_is_a_safe_internal_problem() -> None:
     assert "password" not in response.text
 
 
-def test_websocket_dependency_can_deny_the_handshake() -> None:
-    missing = make_fault()
-    expired = WebSocketFault(SessionExpired, close_code=4001)
-    registry = FaultRegistry(
-        faults=[missing],
-        websocket_faults=[expired],
-        type_base="https://api.example.com/problems",
-    )
-    router = registry.router()
-
-    async def load_session() -> None:
-        raise SessionNotFound
-
-    @router.websocket(
-        "/events",
-        dependencies=[Depends(load_session)],
-        handshake_raises=[missing],
-        closes=[expired],
-    )
-    async def events(websocket: WebSocket) -> None:
-        await websocket.accept()
-
-    app = FastAPI()
-    app.include_router(router)
-    registry.install(app)
-
-    with (
-        pytest.raises(WebSocketDenialResponse) as error,
-        TestClient(app).websocket_connect("/events"),
-    ):
-        pass
-
-    assert error.value.status_code == 404
-    assert error.value.json()["code"] == "session_not_found"
-
-
 def test_install_is_idempotent_for_same_registry() -> None:
     registry = make_registry()
     app = FastAPI()
@@ -272,23 +234,6 @@ def test_install_rejects_cached_openapi() -> None:
 def test_install_requires_type_base_for_builtin_normalization() -> None:
     with pytest.raises(FaultConfigurationError, match="type_base"):
         FaultRegistry(faults=[]).install(FastAPI())
-
-
-def test_install_allows_websocket_only_registry_without_builtin_handlers() -> None:
-    registry = FaultRegistry(
-        faults=[],
-        websocket_faults=[WebSocketFault(SessionExpired, close_code=4001)],
-    )
-    app = FastAPI()
-
-    registry.install(
-        app,
-        include_validation_error=False,
-        include_http_exceptions=False,
-        include_unhandled_error=False,
-    )
-
-    assert app.state._fastapi_faults_registry is registry
 
 
 def test_install_rejects_custom_domain_handler() -> None:
@@ -323,12 +268,12 @@ def test_install_rejects_custom_framework_handler(
         make_registry().install(app)
 
 
-def test_install_rejects_fault_router_missing_from_application_registry() -> None:
+def test_install_rejects_fault_response_missing_from_application_registry() -> None:
     missing = make_fault()
     feature_registry = FaultRegistry(faults=[missing], name="sessions")
-    router = feature_registry.router()
+    router = APIRouter()
 
-    @router.get("/sessions", raises=[missing])
+    @router.get("/sessions", responses=feature_registry.responses(missing))
     async def endpoint() -> None:
         return None
 
@@ -340,7 +285,7 @@ def test_install_rejects_fault_router_missing_from_application_registry() -> Non
 
     with pytest.raises(
         FaultConfigurationError,
-        match="does not contain that exact definition",
+        match="exact definition is missing",
     ):
         application_registry.install(app)
 
@@ -348,9 +293,9 @@ def test_install_rejects_fault_router_missing_from_application_registry() -> Non
 def test_install_accepts_route_from_merged_feature_registry() -> None:
     missing = make_fault()
     feature_registry = FaultRegistry(faults=[missing], name="sessions")
-    router = feature_registry.router()
+    router = APIRouter()
 
-    @router.get("/sessions", raises=[missing])
+    @router.get("/sessions", responses=feature_registry.responses(missing))
     async def endpoint() -> None:
         return None
 
@@ -364,22 +309,3 @@ def test_install_accepts_route_from_merged_feature_registry() -> None:
     application_registry.install(app)
 
     assert app.state._fastapi_faults_registry is application_registry
-
-
-def test_install_rejects_missing_websocket_close_definition() -> None:
-    expired = WebSocketFault(SessionExpired, close_code=4001)
-    feature_registry = FaultRegistry(faults=[], websocket_faults=[expired])
-    router = feature_registry.router()
-
-    @router.websocket("/events", closes=[expired])
-    async def endpoint(websocket: WebSocket) -> None:
-        await websocket.accept()
-
-    app = FastAPI()
-    app.include_router(router)
-    application_registry = FaultRegistry(
-        faults=[], type_base="https://example.test/problems"
-    )
-
-    with pytest.raises(FaultConfigurationError, match="close code 4001"):
-        application_registry.install(app)

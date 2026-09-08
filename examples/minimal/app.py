@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 
 from fastapi_faults import Fault, FaultRegistry
@@ -22,10 +22,13 @@ SESSION_NOT_FOUND = Fault(
 )
 
 session_faults = FaultRegistry(name="sessions", faults=[SESSION_NOT_FOUND])
-router = session_faults.router(prefix="/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.get("/{session_id}", raises=[SESSION_NOT_FOUND])
+@router.get(
+    "/{session_id}",
+    responses=session_faults.responses(SESSION_NOT_FOUND),
+)
 async def get_session(session_id: UUID) -> SessionView:
     raise SessionNotFound(session_id)
 

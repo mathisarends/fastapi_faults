@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 
@@ -53,9 +53,9 @@ def test_declared_fault_does_not_change_custom_success_response_class() -> None:
         title="Resource missing",
     )
     faults = registry(missing)
-    router = faults.router()
+    router = APIRouter()
 
-    @router.get("/text", raises=[missing], response_class=PlainTextResponse)
+    @router.get("/text", responses=faults.responses(missing), response_class=PlainTextResponse)
     async def text() -> str:
         return "ready"
 

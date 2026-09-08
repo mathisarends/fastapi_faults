@@ -1,4 +1,4 @@
-from typing import Any, cast
+﻿from typing import Any, cast
 
 import pytest
 from fastapi import APIRouter, FastAPI, Query
@@ -52,9 +52,9 @@ def installed_app(*faults: Fault[Any]) -> tuple[FastAPI, FaultRegistry]:
 def test_single_fault_generates_openapi_component_and_response() -> None:
     missing = make_fault(description="The requested resource does not exist.")
     app, registry = installed_app(missing)
-    router = registry.router()
+    router = APIRouter()
 
-    @router.get("/resources/{resource_id}", raises=[missing])
+    @router.get("/resources/{resource_id}", responses=registry.responses(missing))
     async def endpoint(resource_id: int) -> None:
         return None
 
@@ -90,9 +90,9 @@ def test_same_status_generates_discriminated_one_of() -> None:
         title="Resource hidden",
     )
     app, registry = installed_app(missing, hidden)
-    router = registry.router()
+    router = APIRouter()
 
-    @router.get("/resource", raises=[missing, hidden])
+    @router.get("/resource", responses=registry.responses(missing, hidden))
     async def endpoint() -> None:
         return None
 
@@ -134,8 +134,8 @@ def test_typed_extensions_headers_and_example_are_documented() -> None:
         example=example,
     )
     app, registry = installed_app(missing)
-    router = registry.router()
-    router.get("/resource", raises=[missing])(lambda: None)
+    router = APIRouter()
+    router.get("/resource", responses=registry.responses(missing))(lambda: None)
     app.include_router(router)
     registry.install(app)
     document = app.openapi()
@@ -168,9 +168,9 @@ def test_runtime_payload_validates_against_documented_schema() -> None:
         openapi_headers={"Retry-After": {"schema": {"type": "integer"}}},
     )
     app, registry = installed_app(missing)
-    router = registry.router()
+    router = APIRouter()
 
-    @router.get("/resource", raises=[missing])
+    @router.get("/resource", responses=registry.responses(missing))
     async def endpoint() -> None:
         raise Missing
 
@@ -190,68 +190,11 @@ def test_runtime_payload_validates_against_documented_schema() -> None:
     Draft202012Validator(schema).validate(response.json())
 
 
-def test_manual_response_members_and_other_media_types_are_preserved() -> None:
-    missing = make_fault(
-        openapi_headers={"Retry-After": {"schema": {"type": "integer"}}}
-    )
-    app, registry = installed_app(missing)
-    router = registry.router()
-
-    @router.get(
-        "/resource",
-        raises=[missing],
-        responses={
-            404: {
-                "description": "Custom description",
-                "content": {"text/plain": {"schema": {"type": "string"}}},
-                "headers": {"X-Trace": {"schema": {"type": "string"}}},
-                "links": {"help": {"operationId": "help"}},
-            },
-            418: {"description": "Unrelated"},
-        },
-    )
-    async def endpoint() -> None:
-        return None
-
-    app.include_router(router)
-    registry.install(app)
-    responses = app.openapi()["paths"]["/resource"]["get"]["responses"]
-
-    assert set(responses["404"]["content"]) == {
-        "text/plain",
-        "application/problem+json",
-    }
-    assert set(responses["404"]["headers"]) == {"X-Trace", "Retry-After"}
-    assert responses["404"]["links"] == {"help": {"operationId": "help"}}
-    assert responses["418"] == {"description": "Unrelated"}
-
-
-def test_manual_problem_schema_conflict_fails_loudly() -> None:
-    missing = make_fault()
-    app, registry = installed_app(missing)
-    router = registry.router()
-    router.get(
-        "/resource",
-        raises=[missing],
-        responses={
-            404: {
-                "description": "Manual",
-                "content": {"application/problem+json": {"schema": {"type": "object"}}},
-            }
-        },
-    )(lambda: None)
-    app.include_router(router)
-    registry.install(app)
-
-    with pytest.raises(FaultConfigurationError, match="already defines"):
-        app.openapi()
-
-
 def test_custom_openapi_wrapper_and_cache_are_preserved() -> None:
     missing = make_fault()
     app, registry = installed_app(missing)
-    router = registry.router()
-    router.get("/resource", raises=[missing])(lambda: None)
+    router = APIRouter()
+    router.get("/resource", responses=registry.responses(missing))(lambda: None)
     app.include_router(router)
     original = app.openapi
     calls = 0
@@ -307,7 +250,7 @@ def test_registry_responses_supports_stock_api_router() -> None:
     }
 
 
-def test_responses_rejects_foreign_or_unresolved_faults() -> None:
+def test_responses_rejects_foreign_and_allows_late_type_resolution() -> None:
     missing = make_fault()
     foreign = make_fault(Conflict, code="resource_conflict")
     resolved = FaultRegistry(
@@ -317,8 +260,7 @@ def test_responses_rejects_foreign_or_unresolved_faults() -> None:
 
     with pytest.raises(FaultConfigurationError, match="does not belong"):
         resolved.responses(foreign)
-    with pytest.raises(FaultConfigurationError, match="no resolved"):
-        unresolved.responses(missing)
+    assert 404 in unresolved.responses(missing)
 
 
 def test_existing_component_collision_fails_loudly() -> None:
@@ -343,8 +285,8 @@ def test_existing_component_collision_fails_loudly() -> None:
 def test_repeated_lazy_router_inclusion_compiles_each_effective_path() -> None:
     missing = make_fault()
     app, registry = installed_app(missing)
-    router = registry.router()
-    router.get("/resource", raises=[missing])(lambda: None)
+    router = APIRouter()
+    router.get("/resource", responses=registry.responses(missing))(lambda: None)
     app.include_router(router, prefix="/one")
     app.include_router(router, prefix="/two")
     registry.install(app)
@@ -408,29 +350,6 @@ def test_invalid_static_extension_example_fails_compilation() -> None:
     registry.install(app)
 
     with pytest.raises(FaultConfigurationError, match="extension member"):
-        app.openapi()
-
-
-def test_manual_header_conflict_fails_loudly() -> None:
-    missing = make_fault(
-        openapi_headers={"Retry-After": {"schema": {"type": "integer"}}}
-    )
-    app, registry = installed_app(missing)
-    router = registry.router()
-    router.get(
-        "/resource",
-        raises=[missing],
-        responses={
-            404: {
-                "description": "Manual",
-                "headers": {"retry-after": {"schema": {"type": "string"}}},
-            }
-        },
-    )(lambda: None)
-    app.include_router(router)
-    registry.install(app)
-
-    with pytest.raises(FaultConfigurationError, match="conflicts on header"):
         app.openapi()
 
 

@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from http import HTTPStatus
 from typing import cast
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request
 from fastapi.exception_handlers import (
     http_exception_handler,
     request_validation_exception_handler,
@@ -14,19 +14,10 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import ExceptionHandler
 
+from fastapi_faults.contracts import INSTALLED_REGISTRY_STATE_KEY, iter_http_contracts
 from fastapi_faults.openapi import install_openapi
 from fastapi_faults.registry import FaultRegistry
 from fastapi_faults.rendering import render_problem
-from fastapi_faults.router import (
-    ENDPOINT_ENTERED_SCOPE_KEY,
-    INSTALLED_REGISTRY_STATE_KEY,
-    deny_handshake,
-    effective_websocket_metadata,
-    get_websocket_metadata,
-    iter_http_contracts,
-    iter_websocket_contracts,
-    resolve_declared,
-)
 from fastapi_faults.types import FaultConfigurationError, JsonValue
 
 logger = logging.getLogger(__name__)
@@ -64,7 +55,6 @@ def install_handlers(
 
     domain_classes = {
         *(fault.exception for fault in registry.faults),
-        *(fault.exception for fault in registry.websocket_faults),
     }
     for exception_class in domain_classes:
         _ensure_handler_available(app, exception_class)
@@ -100,7 +90,7 @@ def install_handlers(
 
 
 def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
-    for http_route, http_faults in iter_http_contracts(app.router):
+    for http_route, http_faults in iter_http_contracts(app.router, registry):
         for http_fault in http_faults:
             if not registry.contains(http_fault):
                 msg = (
@@ -110,35 +100,11 @@ def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
                 )
                 raise FaultConfigurationError(msg)
 
-    for websocket_route, handshake_faults, close_faults in iter_websocket_contracts(
-        app.router
-    ):
-        for handshake_fault in handshake_faults:
-            if not registry.contains(handshake_fault):
-                msg = (
-                    f"WebSocket route {websocket_route.path!r} declares handshake "
-                    f"fault {handshake_fault.code!r}, but the installed registry "
-                    "does not contain that exact definition"
-                )
-                raise FaultConfigurationError(msg)
-        for close_fault in close_faults:
-            if not registry.contains_websocket(close_fault):
-                msg = (
-                    f"WebSocket route {websocket_route.path!r} declares close code "
-                    f"{close_fault.close_code}, but the installed registry does "
-                    "not contain that exact definition"
-                )
-                raise FaultConfigurationError(msg)
-
 
 def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
     async def handler(
-        connection: Request | WebSocket, exception: Exception
-    ) -> Response | None:
-        if isinstance(connection, WebSocket):
-            await _handle_dependency_fault(connection, exception, registry)
-            return None
-
+        connection: Request, exception: Exception
+    ) -> Response:
         fault = registry.resolve(exception)
         if fault is None:
             raise exception
@@ -160,22 +126,6 @@ def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
         return _problem_response(problem.as_dict(), fault.status, headers=headers)
 
     return cast(ExceptionHandler, handler)
-
-
-async def _handle_dependency_fault(
-    websocket: WebSocket, exception: Exception, registry: FaultRegistry
-) -> None:
-    if websocket.scope.get(ENDPOINT_ENTERED_SCOPE_KEY):
-        raise exception
-    route = websocket.scope.get("route")
-    metadata = get_websocket_metadata(getattr(route, "endpoint", None))
-    if metadata is None:
-        raise exception
-    metadata = effective_websocket_metadata(websocket, metadata)
-    fault = resolve_declared(exception, metadata.handshake_raises)
-    if fault is None:
-        raise exception
-    await deny_handshake(websocket, fault, exception, registry)
 
 
 async def _http_exception_handler(request: Request, exception: Exception) -> Response:
@@ -234,11 +184,8 @@ def _response_validation_handler(registry: FaultRegistry) -> ExceptionHandler:
 
 
 def _unhandled_handler(registry: FaultRegistry) -> ExceptionHandler:
-    async def handler(
-        connection: Request | WebSocket, exception: Exception
-    ) -> Response:
-        if isinstance(connection, WebSocket):
-            raise exception
+    async def handler(request: Request, exception: Exception) -> Response:
+        del request
         logger.error(
             "Unhandled application exception",
             exc_info=(type(exception), exception, exception.__traceback__),

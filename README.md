@@ -1,11 +1,11 @@
-<div align="center">
+﻿<div align="center">
 
 # fastapi-faults
 
-**Typed error contracts for FastAPI — from Python exceptions to RFC 9457 and OpenAPI.**
+**Typed error contracts for FastAPI â€” from Python exceptions to RFC 9457 and OpenAPI.**
 
 [![CI](https://github.com/mathisarends/fastapi_faults/actions/workflows/ci.yml/badge.svg)](https://github.com/mathisarends/fastapi_faults/actions/workflows/ci.yml)
-[![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%E2%80%933.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.12â€“3.14](https://img.shields.io/badge/python-3.12%E2%80%933.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![RFC 9457](https://img.shields.io/badge/Problem_Details-RFC_9457-5A45FF)](https://www.rfc-editor.org/rfc/rfc9457)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -17,8 +17,8 @@ uses it everywhere: exception handling, `application/problem+json` responses,
 and generated OpenAPI documentation.
 
 ```text
-domain exception  ──▶  Fault  ──▶  runtime response
-                              └──▶  OpenAPI schema
+domain exception  â”€â”€â–¶  Fault  â”€â”€â–¶  runtime response
+                              â””â”€â”€â–¶  OpenAPI schema
 ```
 
 No duplicated `responses={...}` dictionaries, no process-global registry, and
@@ -30,18 +30,18 @@ no drift between what an endpoint documents and what it actually returns.
 
 ## Why fastapi-faults?
 
-- **One source of truth** — status, stable code, title, detail, headers, examples,
+- **One source of truth** â€” status, stable code, title, detail, headers, examples,
   and schemas live in one `Fault`.
-- **Real Problem Details** — errors use the RFC 9457 media type and structure.
-- **OpenAPI that stays honest** — `raises=[...]` produces the matching response
+- **Real Problem Details** â€” errors use the RFC 9457 media type and structure.
+- **OpenAPI that stays honest** â€” `raises=[...]` produces the matching response
   documentation automatically.
-- **Typed extension members** — Pydantic models validate custom problem fields
+- **Typed extension members** â€” Pydantic models validate custom problem fields
   and generate their schemas.
-- **Feature-local design** — define faults beside a feature, then compose
+- **Feature-local design** â€” define faults beside a feature, then compose
   registries at the application boundary.
-- **Safe defaults** — request validation, FastAPI HTTP errors, and unexpected
+- **Safe defaults** â€” request validation, FastAPI HTTP errors, and unexpected
   failures can be normalized without exposing private inputs or internals.
-- **Contract testing included** — assert response shape, OpenAPI coverage, and
+- **Contract testing included** â€” assert response shape, OpenAPI coverage, and
   undeclared runtime faults.
 
 ## Quickstart
@@ -62,7 +62,7 @@ Define a domain exception, map it once, and declare it on the route that can
 raise it:
 
 ```python
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi_faults import Fault, FaultRegistry
 
 
@@ -83,10 +83,13 @@ session_faults = FaultRegistry(
     name="sessions",
     faults=[SESSION_NOT_FOUND],
 )
-router = session_faults.router(prefix="/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.get("/{session_id}", raises=[SESSION_NOT_FOUND])
+@router.get(
+    "/{session_id}",
+    responses=session_faults.responses(SESSION_NOT_FOUND),
+)
 async def get_session(session_id: str) -> dict[str, str]:
     raise SessionNotFound(session_id)
 
@@ -171,28 +174,10 @@ SESSION_CONFLICT = Fault(
 This produces a top-level `current_version` member at runtime and an `integer`
 property in the generated problem schema.
 
-### Declare shared router faults once
+### Declare route faults
 
-Faults that apply to every operation in a feature can be router defaults:
-
-```python
-browser_router = browser_faults.router(
-    prefix="/browsers/{browser_id}",
-    raises=[BROWSER_NOT_FOUND],
-)
-
-
-@browser_router.get("/state", raises=[BROWSER_STATE_UNAVAILABLE])
-async def get_state(browser_id: str) -> BrowserState:
-    ...
-```
-
-Router defaults and operation faults are combined in outer-to-inner order and
-deduplicated by identity. Every declared fault must belong to the registry
-installed on the application.
-
-Already using FastAPI's standard `APIRouter`? Generate just the response
-metadata as an interoperability escape hatch:
+Use FastAPI's standard `APIRouter` and generate its `responses` metadata from
+the feature registry:
 
 ```python
 @router.get(
@@ -202,6 +187,10 @@ metadata as an interoperability escape hatch:
 async def get_session(session_id: str) -> SessionView:
     ...
 ```
+
+This is the canonical route API. `fastapi-faults` does not subclass or replace
+`APIRouter`. Every declared fault must belong to the registry installed on the
+application.
 
 ## Framework errors and safe fallbacks
 
@@ -251,31 +240,12 @@ assert problem["detail"] == "Session abc does not exist."
 
 async with assert_no_undeclared_faults(app):
     # Exercise routes here. The context fails afterward if a registered fault
-    # occurred without being declared in that operation's raises list.
+    # occurred without being declared in that operation's responses metadata.
     ...
 ```
 
 The undeclared-fault monitor must be entered before the application's first
 request.
-
-## WebSockets
-
-WebSocket endpoints distinguish failures during the HTTP handshake from close
-frames after the connection has been accepted:
-
-```python
-@router.websocket(
-    "/{session_id}/events",
-    handshake_raises=[SESSION_NOT_FOUND],
-    closes=[SESSION_EXPIRED_WS],
-)
-async def events(websocket: WebSocket, session_id: str) -> None:
-    await websocket.accept()
-    ...
-```
-
-See [WebSocket support and caveats](WEBSOCKETS.md) for denial responses, close
-codes, reason-length limits, and the current documentation boundary.
 
 ## Requirements
 

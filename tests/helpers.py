@@ -8,10 +8,10 @@ from fastapi import FastAPI, Request
 from starlette.routing import compile_path
 from starlette.types import ExceptionHandler
 
+from fastapi_faults.contracts import INSTALLED_REGISTRY_STATE_KEY
 from fastapi_faults.fault import Fault
 from fastapi_faults.openapi import effective_http_contracts
 from fastapi_faults.registry import AnyFault, FaultRegistry
-from fastapi_faults.router import INSTALLED_REGISTRY_STATE_KEY
 from fastapi_faults.types import FaultConfigurationError
 
 

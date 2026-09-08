@@ -1,5 +1,5 @@
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from fastapi_faults import Fault, FaultConfigurationError, FaultRegistry
@@ -24,9 +24,9 @@ def make_app(*, declared: bool) -> tuple[FastAPI, Fault[Missing]]:
     registry = FaultRegistry(
         faults=[missing], type_base="https://example.test/problems"
     )
-    router = registry.router()
+    router = APIRouter()
 
-    @router.get("/resources/{resource_id}", raises=[missing] if declared else [])
+    @router.get("/resources/{resource_id}", responses=registry.responses(missing) if declared else {})
     async def endpoint(resource_id: int) -> None:
         del resource_id
         raise Missing

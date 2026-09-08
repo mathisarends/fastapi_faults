@@ -6,7 +6,7 @@ tests are committed together.
 
 ## Release blockers
 
-- [x] Complete HTTP `FaultRouter` ergonomics.
+- [x] Use standard FastAPI `responses=` declarations.
   - Accept `raises` on every FastAPI HTTP path-operation decorator.
   - Union outer-router, inner-router, and operation faults in deterministic,
     identity-preserving order.
@@ -20,7 +20,7 @@ tests are committed together.
     OpenAPI generation.
 - [x] Add the stock `APIRouter` escape hatch.
   - Implement `FaultRegistry.responses(*faults)`.
-  - Reuse the same response compiler as `FaultRouter`.
+  - Use the canonical response compiler.
 - [x] Implement the OpenAPI 3.1 compiler.
   - Add the reusable `Problem` schema and deterministic per-fault components.
   - Emit `application/problem+json` responses for declared faults.
@@ -64,7 +64,7 @@ tests are committed together.
 ## Already implemented
 
 - [x] Python 3.12-3.14 project and CI foundation.
-- [x] Immutable `Fault`, `Problem`, and `WebSocketFault` definitions.
+- [x] Immutable `Fault` and `Problem` definitions.
 - [x] Composable feature registries with collision and MRO handling.
 - [x] RFC 9457 runtime rendering and safe callback fallbacks.
 - [x] Domain, HTTP exception, request-validation, response-validation, and

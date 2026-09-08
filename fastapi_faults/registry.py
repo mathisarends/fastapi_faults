@@ -9,27 +9,17 @@ from urllib.parse import urlsplit
 from fastapi_faults.fault import Fault
 from fastapi_faults.types import FaultConfigurationError, is_absolute_uri
 from fastapi_faults.validation import unique_instances
-from fastapi_faults.websocket import WebSocketFault
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from fastapi_faults.router import FaultRouter
-
 type AnyFault = Fault[Any]
-type AnyWebSocketFault = WebSocketFault[Any]
 
 
 @dataclass(frozen=True, slots=True)
 class _RegistryEntry:
     fault: AnyFault
     type_uri: str | None
-    source: str
-
-
-@dataclass(frozen=True, slots=True)
-class _WebSocketRegistryEntry:
-    fault: AnyWebSocketFault
     source: str
 
 
@@ -40,11 +30,7 @@ class FaultRegistry:
     name: str | None
     type_base: str | None
     _entries: tuple[_RegistryEntry, ...] = field(repr=False)
-    _websocket_entries: tuple[_WebSocketRegistryEntry, ...] = field(repr=False)
     _by_exception: Mapping[type[Exception], _RegistryEntry] = field(
-        repr=False, compare=False, hash=False
-    )
-    _websocket_by_exception: Mapping[type[Exception], _WebSocketRegistryEntry] = field(
         repr=False, compare=False, hash=False
     )
 
@@ -52,7 +38,6 @@ class FaultRegistry:
         self,
         *,
         faults: Sequence[AnyFault],
-        websocket_faults: Sequence[AnyWebSocketFault] = (),
         name: str | None = None,
         type_base: str | None = None,
     ) -> None:
@@ -67,16 +52,8 @@ class FaultRegistry:
             )
             for fault in unique_instances(faults, Fault, parameter="faults")
         )
-        websocket_entries = tuple(
-            _WebSocketRegistryEntry(fault=fault, source=source)
-            for fault in unique_instances(
-                websocket_faults, WebSocketFault, parameter="websocket_faults"
-            )
-        )
-
         self._initialize(
             entries=entries,
-            websocket_entries=websocket_entries,
             name=normalized_name,
             type_base=normalized_base,
         )
@@ -88,11 +65,10 @@ class FaultRegistry:
         name: str | None = None,
         type_base: str | None = None,
     ) -> Self:
-        """Compose registries without mutating inputs or unpacking fault lists."""
+        """Compose registries and validate all collisions."""
         normalized_name = _validate_name(name)
         normalized_base = _validate_type_base(type_base)
         merged: dict[int, _RegistryEntry] = {}
-        merged_websocket: dict[int, _WebSocketRegistryEntry] = {}
 
         for registry in unique_instances(
             registries, FaultRegistry, parameter="registries"
@@ -116,8 +92,6 @@ class FaultRegistry:
                     raise FaultConfigurationError(msg)
                 if previous.type_uri is None and entry.type_uri is not None:
                     merged[identity] = replace(previous, type_uri=entry.type_uri)
-            for websocket_entry in registry._websocket_entries:
-                merged_websocket.setdefault(id(websocket_entry.fault), websocket_entry)
 
         resolved = tuple(
             entry
@@ -131,7 +105,6 @@ class FaultRegistry:
         instance = object.__new__(cls)
         instance._initialize(
             entries=resolved,
-            websocket_entries=tuple(merged_websocket.values()),
             name=normalized_name,
             type_base=normalized_base,
         )
@@ -139,7 +112,7 @@ class FaultRegistry:
 
     @property
     def faults(self) -> tuple[AnyFault, ...]:
-        """Return fault definitions in deterministic declaration order."""
+        """Return definitions in deterministic declaration order."""
         return tuple(entry.fault for entry in self._entries)
 
     def __iter__(self) -> Iterator[AnyFault]:
@@ -148,23 +121,10 @@ class FaultRegistry:
     def __len__(self) -> int:
         return len(self._entries)
 
-    @property
-    def websocket_faults(self) -> tuple[AnyWebSocketFault, ...]:
-        """Return WebSocket close definitions in deterministic order."""
-        return tuple(entry.fault for entry in self._websocket_entries)
-
     def resolve(self, exception: Exception) -> AnyFault | None:
         """Resolve the most specific registered fault through normal Python MRO."""
         for exception_class in type(exception).__mro__:
             entry = self._by_exception.get(exception_class)
-            if entry is not None:
-                return entry.fault
-        return None
-
-    def resolve_websocket(self, exception: Exception) -> AnyWebSocketFault | None:
-        """Resolve the most specific registered WebSocket fault through MRO."""
-        for exception_class in type(exception).__mro__:
-            entry = self._websocket_by_exception.get(exception_class)
             if entry is not None:
                 return entry.fault
         return None
@@ -178,12 +138,12 @@ class FaultRegistry:
         return entry.type_uri
 
     def contains(self, fault: AnyFault) -> bool:
-        """Check membership by definition identity, not exception class alone."""
+        """Check membership by definition identity."""
         entry = self._by_exception.get(fault.exception)
         return entry is not None and entry.fault is fault
 
     def require_resolved(self) -> None:
-        """Reject registries with unresolved HTTP problem type URIs."""
+        """Reject registries with unresolved problem type URIs."""
         unresolved = [
             entry.fault.code for entry in self._entries if entry.type_uri is None
         ]
@@ -195,19 +155,8 @@ class FaultRegistry:
             )
             raise FaultConfigurationError(msg)
 
-    def contains_websocket(self, fault: AnyWebSocketFault) -> bool:
-        """Check WebSocket membership by definition identity."""
-        entry = self._websocket_by_exception.get(fault.exception)
-        return entry is not None and entry.fault is fault
-
-    def router(self, **kwargs: Any) -> FaultRouter:
-        """Create a router bound to this feature registry."""
-        from fastapi_faults.router import FaultRouter
-
-        return FaultRouter(registry=self, **kwargs)
-
     def responses(self, *faults: AnyFault) -> dict[int | str, dict[str, Any]]:
-        """Compile fault responses for a stock FastAPI APIRouter."""
+        """Compile validated fault responses for FastAPI's ``responses=``."""
         from fastapi_faults.openapi import compile_responses
 
         return compile_responses(self, faults)
@@ -220,7 +169,7 @@ class FaultRegistry:
         include_http_exceptions: bool = True,
         include_unhandled_error: bool = True,
     ) -> None:
-        """Install runtime handlers for HTTP and WebSocket fault mappings."""
+        """Install runtime handlers and OpenAPI integration."""
         from fastapi_faults.handlers import install_handlers
 
         install_handlers(
@@ -235,22 +184,14 @@ class FaultRegistry:
         self,
         *,
         entries: tuple[_RegistryEntry, ...],
-        websocket_entries: tuple[_WebSocketRegistryEntry, ...],
         name: str | None,
         type_base: str | None,
     ) -> None:
         by_exception = _validate_collisions(entries)
-        websocket_by_exception = _validate_websocket_collisions(websocket_entries)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "type_base", type_base)
         object.__setattr__(self, "_entries", entries)
-        object.__setattr__(self, "_websocket_entries", websocket_entries)
         object.__setattr__(self, "_by_exception", MappingProxyType(by_exception))
-        object.__setattr__(
-            self,
-            "_websocket_by_exception",
-            MappingProxyType(websocket_by_exception),
-        )
 
 
 def _validate_name(value: object) -> str | None:
@@ -328,47 +269,4 @@ def _collision_error(
         f"conflicting {dimension} {value!r}: fault {first.fault.code!r} from "
         f"registry {first.source!r} conflicts with fault {second.fault.code!r} "
         f"from registry {second.source!r}"
-    )
-
-
-def _validate_websocket_collisions(
-    entries: tuple[_WebSocketRegistryEntry, ...],
-) -> dict[type[Exception], _WebSocketRegistryEntry]:
-    by_exception: dict[type[Exception], _WebSocketRegistryEntry] = {}
-    by_close_code: dict[int, _WebSocketRegistryEntry] = {}
-
-    for entry in entries:
-        previous_exception = by_exception.get(entry.fault.exception)
-        if (
-            previous_exception is not None
-            and previous_exception.fault is not entry.fault
-        ):
-            raise _websocket_collision_error(
-                "exception class",
-                entry.fault.exception,
-                previous_exception,
-                entry,
-            )
-        previous_code = by_close_code.get(entry.fault.close_code)
-        if previous_code is not None and previous_code.fault is not entry.fault:
-            raise _websocket_collision_error(
-                "close code", entry.fault.close_code, previous_code, entry
-            )
-        by_exception[entry.fault.exception] = entry
-        by_close_code[entry.fault.close_code] = entry
-
-    return by_exception
-
-
-def _websocket_collision_error(
-    dimension: str,
-    value: object,
-    first: _WebSocketRegistryEntry,
-    second: _WebSocketRegistryEntry,
-) -> FaultConfigurationError:
-    return FaultConfigurationError(
-        f"conflicting WebSocket {dimension} {value!r}: definition for "
-        f"{first.fault.exception.__qualname__!r} from registry {first.source!r} "
-        f"conflicts with {second.fault.exception.__qualname__!r} from registry "
-        f"{second.source!r}"
     )
