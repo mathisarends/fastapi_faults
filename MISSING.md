@@ -51,10 +51,10 @@ tests are committed together.
 
 ## Documentation and packaging
 
-- [ ] Replace the placeholder README with the verified minimal example and API
+- [x] Replace the placeholder README with the verified minimal example and API
   guidance from `SPEC.md`.
-- [ ] Add the runnable `examples/minimal` application.
-- [ ] Add a changelog and record the initial public contract.
+- [x] Add the runnable `examples/minimal` application.
+- [x] Add a changelog and record the initial public contract.
 - [ ] Add a license and complete package metadata such as authors, license,
   project URLs, and repository links.
 - [ ] Install the built wheel in a clean environment and run the documented
