@@ -18,8 +18,11 @@ jobs:
           enable-cache: true
           python-version: "3.14"
       - run: uv sync --frozen --all-groups
-      - run: uv run ruff format --check .
-      - run: uv run ruff check .
+      - run: >-
+          uv run pre-commit run
+          --config .pre-commit-config.yml
+          --all-files
+          --show-diff-on-failure
       - run: uv run mypy
 
   test:
