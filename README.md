@@ -227,10 +227,12 @@ api_faults.install(
 
 ## Testing contracts
 
-Optional helpers make runtime and documentation drift visible in tests:
+The repository's own test helpers live in `tests/helpers.py` and are not shipped
+with the library. Within this checkout, they can check runtime and documentation
+drift:
 
 ```python
-from fastapi_faults.testing import (
+from tests.helpers import (
     assert_no_undeclared_faults,
     assert_openapi_contract,
     assert_problem,

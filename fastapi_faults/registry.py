@@ -1,17 +1,20 @@
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from __future__ import annotations
+
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self
 from urllib.parse import urlsplit
 
-from .fault import Fault
-from .types import FaultConfigurationError, is_absolute_uri
-from .websocket import WebSocketFault
+from fastapi_faults.fault import Fault
+from fastapi_faults.types import FaultConfigurationError, is_absolute_uri
+from fastapi_faults.validation import unique_instances
+from fastapi_faults.websocket import WebSocketFault
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from .router import FaultRouter
+    from fastapi_faults.router import FaultRouter
 
 type AnyFault = Fault[Any]
 type AnyWebSocketFault = WebSocketFault[Any]
@@ -36,12 +39,14 @@ class FaultRegistry:
 
     name: str | None
     type_base: str | None
-    _entries: tuple[_RegistryEntry, ...]
-    _websocket_entries: tuple[_WebSocketRegistryEntry, ...]
-    _by_exception: MappingProxyType[type[Exception], _RegistryEntry]
-    _by_identity: MappingProxyType[int, _RegistryEntry]
-    _websocket_by_exception: MappingProxyType[type[Exception], _WebSocketRegistryEntry]
-    _websocket_by_identity: MappingProxyType[int, _WebSocketRegistryEntry]
+    _entries: tuple[_RegistryEntry, ...] = field(repr=False)
+    _websocket_entries: tuple[_WebSocketRegistryEntry, ...] = field(repr=False)
+    _by_exception: Mapping[type[Exception], _RegistryEntry] = field(
+        repr=False, compare=False, hash=False
+    )
+    _websocket_by_exception: Mapping[type[Exception], _WebSocketRegistryEntry] = field(
+        repr=False, compare=False, hash=False
+    )
 
     def __init__(
         self,
@@ -54,44 +59,24 @@ class FaultRegistry:
         normalized_name = _validate_name(name)
         normalized_base = _validate_type_base(type_base)
         source = normalized_name or "<anonymous>"
-        entries: list[_RegistryEntry] = []
-        websocket_entries: list[_WebSocketRegistryEntry] = []
-        seen_identities: set[int] = set()
-
-        for index, candidate in enumerate(cast("Sequence[object]", faults)):
-            fault = candidate
-            if not isinstance(fault, Fault):
-                msg = f"faults[{index}] must be a Fault instance"
-                raise FaultConfigurationError(msg)
-            identity = id(fault)
-            if identity in seen_identities:
-                continue
-            seen_identities.add(identity)
-            entries.append(
-                _RegistryEntry(
-                    fault=fault,
-                    type_uri=_resolve_type_uri(fault, normalized_base),
-                    source=source,
-                )
+        entries = tuple(
+            _RegistryEntry(
+                fault=fault,
+                type_uri=_resolve_type_uri(fault, normalized_base),
+                source=source,
             )
-
-        seen_websocket_identities: set[int] = set()
-        for index, candidate in enumerate(cast("Sequence[object]", websocket_faults)):
-            websocket_fault = candidate
-            if not isinstance(websocket_fault, WebSocketFault):
-                msg = f"websocket_faults[{index}] must be a WebSocketFault instance"
-                raise FaultConfigurationError(msg)
-            identity = id(websocket_fault)
-            if identity in seen_websocket_identities:
-                continue
-            seen_websocket_identities.add(identity)
-            websocket_entries.append(
-                _WebSocketRegistryEntry(fault=websocket_fault, source=source)
+            for fault in unique_instances(faults, Fault, parameter="faults")
+        )
+        websocket_entries = tuple(
+            _WebSocketRegistryEntry(fault=fault, source=source)
+            for fault in unique_instances(
+                websocket_faults, WebSocketFault, parameter="websocket_faults"
             )
+        )
 
         self._initialize(
-            entries=tuple(entries),
-            websocket_entries=tuple(websocket_entries),
+            entries=entries,
+            websocket_entries=websocket_entries,
             name=normalized_name,
             type_base=normalized_base,
         )
@@ -106,25 +91,18 @@ class FaultRegistry:
         """Compose registries without mutating inputs or unpacking fault lists."""
         normalized_name = _validate_name(name)
         normalized_base = _validate_type_base(type_base)
-        merged: list[_RegistryEntry] = []
-        merged_websocket: list[_WebSocketRegistryEntry] = []
-        identities: dict[int, int] = {}
-        websocket_identities: set[int] = set()
+        merged: dict[int, _RegistryEntry] = {}
+        merged_websocket: dict[int, _WebSocketRegistryEntry] = {}
 
-        for index, candidate in enumerate(cast("tuple[object, ...]", registries)):
-            registry = candidate
-            if not isinstance(registry, FaultRegistry):
-                msg = f"registries[{index}] must be a FaultRegistry instance"
-                raise FaultConfigurationError(msg)
+        for registry in unique_instances(
+            registries, FaultRegistry, parameter="registries"
+        ):
             for entry in registry._entries:
                 identity = id(entry.fault)
-                previous_index = identities.get(identity)
-                if previous_index is None:
-                    identities[identity] = len(merged)
-                    merged.append(entry)
+                previous = merged.get(identity)
+                if previous is None:
+                    merged[identity] = entry
                     continue
-
-                previous = merged[previous_index]
                 if (
                     previous.type_uri is not None
                     and entry.type_uri is not None
@@ -137,32 +115,23 @@ class FaultRegistry:
                     )
                     raise FaultConfigurationError(msg)
                 if previous.type_uri is None and entry.type_uri is not None:
-                    merged[previous_index] = _RegistryEntry(
-                        fault=previous.fault,
-                        type_uri=entry.type_uri,
-                        source=previous.source,
-                    )
+                    merged[identity] = replace(previous, type_uri=entry.type_uri)
             for websocket_entry in registry._websocket_entries:
-                identity = id(websocket_entry.fault)
-                if identity in websocket_identities:
-                    continue
-                websocket_identities.add(identity)
-                merged_websocket.append(websocket_entry)
+                merged_websocket.setdefault(id(websocket_entry.fault), websocket_entry)
 
         resolved = tuple(
             entry
             if entry.type_uri is not None or normalized_base is None
-            else _RegistryEntry(
-                fault=entry.fault,
+            else replace(
+                entry,
                 type_uri=_resolve_type_uri(entry.fault, normalized_base),
-                source=entry.source,
             )
-            for entry in merged
+            for entry in merged.values()
         )
         instance = object.__new__(cls)
         instance._initialize(
             entries=resolved,
-            websocket_entries=tuple(merged_websocket),
+            websocket_entries=tuple(merged_websocket.values()),
             name=normalized_name,
             type_base=normalized_base,
         )
@@ -200,18 +169,21 @@ class FaultRegistry:
                 return entry.fault
         return None
 
-    def _type_uri_for(self, fault: AnyFault) -> str | None:
-        entry = self._by_identity.get(id(fault))
+    def type_uri_for(self, fault: AnyFault) -> str | None:
+        """Return a member's resolved type URI, or None if still unresolved."""
+        entry = self._by_exception.get(fault.exception)
         if entry is None or entry.fault is not fault:
             msg = f"fault {fault.code!r} does not belong to this registry"
             raise FaultConfigurationError(msg)
         return entry.type_uri
 
-    def _contains(self, fault: AnyFault) -> bool:
-        entry = self._by_identity.get(id(fault))
+    def contains(self, fault: AnyFault) -> bool:
+        """Check membership by definition identity, not exception class alone."""
+        entry = self._by_exception.get(fault.exception)
         return entry is not None and entry.fault is fault
 
-    def _require_resolved(self) -> None:
+    def require_resolved(self) -> None:
+        """Reject registries with unresolved HTTP problem type URIs."""
         unresolved = [
             entry.fault.code for entry in self._entries if entry.type_uri is None
         ]
@@ -223,32 +195,33 @@ class FaultRegistry:
             )
             raise FaultConfigurationError(msg)
 
-    def _contains_websocket(self, fault: AnyWebSocketFault) -> bool:
-        entry = self._websocket_by_identity.get(id(fault))
+    def contains_websocket(self, fault: AnyWebSocketFault) -> bool:
+        """Check WebSocket membership by definition identity."""
+        entry = self._websocket_by_exception.get(fault.exception)
         return entry is not None and entry.fault is fault
 
-    def router(self, **kwargs: Any) -> "FaultRouter":
+    def router(self, **kwargs: Any) -> FaultRouter:
         """Create a router bound to this feature registry."""
-        from .router import FaultRouter
+        from fastapi_faults.router import FaultRouter
 
         return FaultRouter(registry=self, **kwargs)
 
     def responses(self, *faults: AnyFault) -> dict[int | str, dict[str, Any]]:
         """Compile fault responses for a stock FastAPI APIRouter."""
-        from .openapi import compile_responses
+        from fastapi_faults.openapi import compile_responses
 
         return compile_responses(self, faults)
 
     def install(
         self,
-        app: "FastAPI",
+        app: FastAPI,
         *,
         include_validation_error: bool = True,
         include_http_exceptions: bool = True,
         include_unhandled_error: bool = True,
     ) -> None:
         """Install runtime handlers for HTTP and WebSocket fault mappings."""
-        from .handlers import install_handlers
+        from fastapi_faults.handlers import install_handlers
 
         install_handlers(
             self,
@@ -268,23 +241,15 @@ class FaultRegistry:
     ) -> None:
         by_exception = _validate_collisions(entries)
         websocket_by_exception = _validate_websocket_collisions(websocket_entries)
-        by_identity = {id(entry.fault): entry for entry in entries}
-        websocket_by_identity = {id(entry.fault): entry for entry in websocket_entries}
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "type_base", type_base)
         object.__setattr__(self, "_entries", entries)
         object.__setattr__(self, "_websocket_entries", websocket_entries)
         object.__setattr__(self, "_by_exception", MappingProxyType(by_exception))
-        object.__setattr__(self, "_by_identity", MappingProxyType(by_identity))
         object.__setattr__(
             self,
             "_websocket_by_exception",
             MappingProxyType(websocket_by_exception),
-        )
-        object.__setattr__(
-            self,
-            "_websocket_by_identity",
-            MappingProxyType(websocket_by_identity),
         )
 
 

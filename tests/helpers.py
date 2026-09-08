@@ -8,11 +8,11 @@ from fastapi import FastAPI, Request
 from starlette.routing import compile_path
 from starlette.types import ExceptionHandler
 
-from .fault import Fault
-from .openapi import _effective_http_contracts
-from .registry import AnyFault, FaultRegistry
-from .router import _INSTALLED_REGISTRY_STATE_KEY
-from .types import FaultConfigurationError
+from fastapi_faults.fault import Fault
+from fastapi_faults.openapi import effective_http_contracts
+from fastapi_faults.registry import AnyFault, FaultRegistry
+from fastapi_faults.router import INSTALLED_REGISTRY_STATE_KEY
+from fastapi_faults.types import FaultConfigurationError
 
 
 class ResponseLike(Protocol):
@@ -64,14 +64,14 @@ def assert_problem(
     }
     if mismatches:
         raise AssertionError(f"problem response constants differ: {mismatches!r}")
-    return cast("dict[str, Any]", payload)
+    return cast(dict[str, Any], payload)
 
 
 def assert_openapi_contract(app: FastAPI) -> None:
     registry = _installed_registry(app)
     document = app.openapi()
     paths = document.get("paths", {})
-    for path, methods, faults in _effective_http_contracts(app):
+    for path, methods, faults in effective_http_contracts(app):
         for method in methods:
             operation = paths.get(path, {}).get(method.lower())
             if operation is None:
@@ -88,7 +88,7 @@ def assert_openapi_contract(app: FastAPI) -> None:
                         "in its application/problem+json response"
                     )
                     raise AssertionError(msg)
-                if registry._type_uri_for(fault) is None:
+                if registry.type_uri_for(fault) is None:
                     raise AssertionError(f"fault {fault.code!r} has no resolved type")
 
 
@@ -164,20 +164,18 @@ def _recording_handler(
                         fault=fault,
                     )
                 )
-        result = cast("Callable[[Any, Exception], Any]", original)(
-            connection, exception
-        )
+        result = cast(Callable[[Any, Exception], Any], original)(connection, exception)
         if inspect.isawaitable(result):
             return await result
         return result
 
-    return cast("ExceptionHandler", handler)
+    return cast(ExceptionHandler, handler)
 
 
 def _compiled_route_matchers(app: FastAPI) -> tuple[_RouteMatcher, ...]:
     document = app.openapi()
     result: list[_RouteMatcher] = []
-    for path, methods, faults in _effective_http_contracts(app):
+    for path, methods, faults in effective_http_contracts(app):
         pattern, _, _ = compile_path(path)
         for method in methods:
             operation = document.get("paths", {}).get(path, {}).get(method.lower())
@@ -210,9 +208,9 @@ def _match_contract(
 
 
 def _installed_registry(app: FastAPI) -> FaultRegistry:
-    registry = getattr(app.state, _INSTALLED_REGISTRY_STATE_KEY, None)
+    registry = getattr(app.state, INSTALLED_REGISTRY_STATE_KEY, None)
     if not isinstance(registry, FaultRegistry):
-        msg = "install a FaultRegistry before using fastapi_faults.testing helpers"
+        msg = "install a FaultRegistry before using the contract test helpers"
         raise FaultConfigurationError(msg)
     return registry
 

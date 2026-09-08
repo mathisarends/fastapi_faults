@@ -73,7 +73,7 @@ def test_registry_preserves_order_and_resolves_type_base() -> None:
     assert tuple(registry) == (session, account)
     assert len(registry) == 2
     assert (
-        registry._type_uri_for(session)
+        registry.type_uri_for(session)
         == "https://api.example.com/problems/session_not_found"
     )
 
@@ -123,7 +123,7 @@ def test_registry_retains_explicit_type() -> None:
         faults=[fault], type_base="https://api.example.com/problems"
     )
 
-    assert registry._type_uri_for(fault) == "urn:example:session-not-found"
+    assert registry.type_uri_for(fault) == "urn:example:session-not-found"
 
 
 def test_registry_requires_all_types_before_installation() -> None:
@@ -131,13 +131,13 @@ def test_registry_requires_all_types_before_installation() -> None:
     registry = FaultRegistry(faults=[fault])
 
     with pytest.raises(FaultConfigurationError, match="session_not_found"):
-        registry._require_resolved()
+        registry.require_resolved()
 
 
 def test_registry_accepts_empty_resolved_collection() -> None:
     registry = FaultRegistry(faults=[])
 
-    registry._require_resolved()
+    registry.require_resolved()
 
 
 @pytest.mark.parametrize(
@@ -205,9 +205,9 @@ def test_merge_preserves_order_and_does_not_mutate_features() -> None:
 
     assert merged.faults == (session, account)
     assert sessions.type_base is None
-    assert sessions._type_uri_for(session) is None
+    assert sessions.type_uri_for(session) is None
     assert (
-        merged._type_uri_for(session)
+        merged.type_uri_for(session)
         == "https://api.example.com/problems/session_not_found"
     )
 
@@ -233,7 +233,7 @@ def test_registry_composes_and_deduplicates_websocket_faults() -> None:
 
     assert base.websocket_faults == (shared,)
     assert merged.websocket_faults == (shared,)
-    assert merged._contains_websocket(shared)
+    assert merged.contains_websocket(shared)
 
 
 @pytest.mark.parametrize(
@@ -283,11 +283,11 @@ def test_merge_retains_feature_type_base_and_fills_unresolved_faults() -> None:
     )
 
     assert (
-        merged._type_uri_for(session)
+        merged.type_uri_for(session)
         == "https://sessions.example.com/problems/session_not_found"
     )
     assert (
-        merged._type_uri_for(account)
+        merged.type_uri_for(account)
         == "https://api.example.com/problems/account_not_found"
     )
 
@@ -308,7 +308,7 @@ def test_merge_prefers_existing_resolution_for_shared_fault() -> None:
     )
 
     assert (
-        merged._type_uri_for(shared)
+        merged.type_uri_for(shared)
         == "https://feature.example.com/problems/session_not_found"
     )
 
@@ -374,7 +374,7 @@ def test_registry_rejects_foreign_websocket_membership() -> None:
     registry = FaultRegistry(faults=[])
     foreign = make_websocket_fault(SessionNotFound, 4001)
 
-    assert not registry._contains_websocket(foreign)
+    assert not registry.contains_websocket(foreign)
 
 
 def test_registry_rejects_lookup_for_foreign_fault() -> None:
@@ -382,7 +382,7 @@ def test_registry_rejects_lookup_for_foreign_fault() -> None:
     foreign = make_fault(SessionNotFound, "session_not_found")
 
     with pytest.raises(FaultConfigurationError):
-        registry._type_uri_for(foreign)
+        registry.type_uri_for(foreign)
 
 
 def test_registry_is_frozen() -> None:

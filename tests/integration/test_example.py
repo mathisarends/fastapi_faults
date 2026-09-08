@@ -1,5 +1,6 @@
-from examples.minimal.app import app
 from fastapi.testclient import TestClient
+
+from examples.minimal.app import app
 
 
 def test_minimal_example_runtime_and_openapi() -> None:

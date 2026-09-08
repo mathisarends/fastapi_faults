@@ -3,9 +3,9 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ValidationError
 
-from .fault import Fault, _freeze_headers
-from .problem import Problem
-from .types import FaultConfigurationError, JsonValue
+from fastapi_faults.fault import Fault, freeze_headers
+from fastapi_faults.problem import Problem
+from fastapi_faults.types import FaultConfigurationError, JsonValue
 
 type AnyFault = Fault[Any]
 
@@ -77,7 +77,7 @@ def _render_extensions(fault: AnyFault, exception: Exception) -> dict[str, JsonV
             raise FaultConfigurationError(msg) from error
         rendered = rendered_model.model_dump(mode="json", by_alias=True)
 
-    return cast("dict[str, JsonValue]", dict(rendered))
+    return cast(dict[str, JsonValue], dict(rendered))
 
 
 def _render_headers(fault: AnyFault, exception: Exception) -> dict[str, str]:
@@ -88,4 +88,4 @@ def _render_headers(fault: AnyFault, exception: Exception) -> dict[str, str]:
     if not isinstance(rendered, Mapping):
         msg = "headers callback must return a mapping"
         raise FaultConfigurationError(msg)
-    return dict(_freeze_headers(rendered, path="rendered headers"))
+    return dict(freeze_headers(rendered, path="rendered headers"))

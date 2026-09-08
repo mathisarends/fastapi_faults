@@ -32,7 +32,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fastapi_faults"]
+packages = ["fastapi_faults"]
 
 [dependency-groups]
 dev = [
@@ -50,7 +50,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-src = ["src", "tests", "examples"]
+src = ["."]
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
@@ -59,7 +59,7 @@ select = ["B", "E4", "E7", "E9", "F", "I", "RUF", "SIM", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "tests", "examples"]
+files = ["fastapi_faults", "tests", "examples"]
 pretty = true
 show_error_codes = true
 warn_unreachable = true

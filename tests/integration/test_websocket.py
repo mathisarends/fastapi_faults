@@ -13,7 +13,7 @@ from fastapi_faults import (
     FaultRegistry,
     WebSocketFault,
 )
-from fastapi_faults.router import _deny_handshake
+from fastapi_faults.router import deny_handshake
 
 
 class SessionNotFound(Exception):
@@ -306,7 +306,7 @@ async def test_handshake_denial_requires_asgi_extension() -> None:
     )
 
     with pytest.raises(RuntimeError, match=r"websocket\.http\.response"):
-        await _deny_handshake(websocket, missing, SessionNotFound(), registry)
+        await deny_handshake(websocket, missing, SessionNotFound(), registry)
 
 
 def test_outer_router_websocket_close_default_applies_after_lazy_inclusion() -> None:

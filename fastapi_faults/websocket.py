@@ -2,7 +2,7 @@ import builtins
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from .types import FaultConfigurationError
+from fastapi_faults.types import FaultConfigurationError
 
 
 class ReasonRenderer[ExceptionT: Exception](Protocol):
@@ -50,7 +50,8 @@ class WebSocketFault[ExceptionT: Exception]:
             msg = "description must be a string or None"
             raise FaultConfigurationError(msg)
 
-    def _render_reason(self, exception: ExceptionT) -> str:
+    def render_reason(self, exception: ExceptionT) -> str:
+        """Render and validate the advisory reason for a close frame."""
         renderer: object = self.reason
         rendered: object = renderer(exception) if callable(renderer) else renderer
         if rendered is None:

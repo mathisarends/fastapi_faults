@@ -8,9 +8,9 @@ from fastapi import FastAPI, WebSocket
 import fastapi_faults.router as router_module
 from fastapi_faults import FaultRegistry
 from fastapi_faults.router import (
-    _effective_websocket_metadata,
+    WebSocketMetadata,
     _effective_websocket_routes,
-    _WebSocketMetadata,
+    effective_websocket_metadata,
 )
 
 
@@ -30,8 +30,8 @@ def make_websocket(app: object, path: str = "/events") -> WebSocket:
     )
 
 
-def make_metadata() -> _WebSocketMetadata:
-    return _WebSocketMetadata(
+def make_metadata() -> WebSocketMetadata:
+    return WebSocketMetadata(
         registry=FaultRegistry(faults=[]),
         handshake_raises=(),
         closes=(),
@@ -41,14 +41,14 @@ def make_metadata() -> _WebSocketMetadata:
 def test_effective_metadata_returns_original_without_fastapi_app() -> None:
     metadata = make_metadata()
 
-    assert _effective_websocket_metadata(make_websocket(object()), metadata) is metadata
+    assert effective_websocket_metadata(make_websocket(object()), metadata) is metadata
 
 
 def test_effective_metadata_returns_original_when_no_route_matches() -> None:
     app = FastAPI()
     metadata = make_metadata()
 
-    assert _effective_websocket_metadata(make_websocket(app), metadata) is metadata
+    assert effective_websocket_metadata(make_websocket(app), metadata) is metadata
 
 
 def test_effective_metadata_returns_original_for_inconsistent_route_graph(
@@ -62,7 +62,7 @@ def test_effective_metadata_returns_original_for_inconsistent_route_graph(
         lambda _routes: [object()],
     )
 
-    assert _effective_websocket_metadata(make_websocket(app), metadata) is metadata
+    assert effective_websocket_metadata(make_websocket(app), metadata) is metadata
 
 
 def test_websocket_route_iterator_supports_fastapi_without_route_contexts(

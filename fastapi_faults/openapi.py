@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
-from .problem import Problem
-from .registry import AnyFault, FaultRegistry
-from .router import _iter_http_contracts
-from .types import FaultConfigurationError, JsonValue
+from fastapi_faults.problem import Problem
+from fastapi_faults.registry import AnyFault, FaultRegistry
+from fastapi_faults.router import iter_http_contracts
+from fastapi_faults.types import FaultConfigurationError, JsonValue
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
 _HTTP_METHODS = frozenset(
@@ -38,7 +38,7 @@ def install_openapi(
         app.openapi_schema = compiled
         return compiled
 
-    cast("Any", app).openapi = openapi
+    cast(Any, app).openapi = openapi
 
 
 def compile_document(
@@ -66,12 +66,12 @@ def compile_document(
             _request_validation_schema(registry),
         )
 
-    for path, methods, faults in _effective_http_contracts(app):
-        path_item = cast("dict[str, Any] | None", result.get("paths", {}).get(path))
+    for path, methods, faults in effective_http_contracts(app):
+        path_item = cast(dict[str, Any] | None, result.get("paths", {}).get(path))
         if path_item is None:
             continue
         for method in methods:
-            operation = cast("dict[str, Any] | None", path_item.get(method.lower()))
+            operation = cast(dict[str, Any] | None, path_item.get(method.lower()))
             if operation is None or method.lower() not in _HTTP_METHODS:
                 continue
             responses = operation.setdefault("responses", {})
@@ -88,10 +88,10 @@ def compile_responses(
 ) -> dict[int | str, dict[str, Any]]:
     grouped: dict[int, list[AnyFault]] = {}
     for fault in faults:
-        if not registry._contains(fault):
+        if not registry.contains(fault):
             msg = f"fault {fault.code!r} does not belong to this registry"
             raise FaultConfigurationError(msg)
-        if registry._type_uri_for(fault) is None:
+        if registry.type_uri_for(fault) is None:
             msg = f"fault {fault.code!r} has no resolved problem type URI"
             raise FaultConfigurationError(msg)
         grouped.setdefault(fault.status, []).append(fault)
@@ -103,13 +103,13 @@ def compile_fault_schema(
     registry: FaultRegistry,
     fault: AnyFault,
 ) -> dict[str, Any]:
-    type_uri = registry._type_uri_for(fault)
+    type_uri = registry.type_uri_for(fault)
     if type_uri is None:
         msg = f"fault {fault.code!r} has no resolved problem type URI"
         raise FaultConfigurationError(msg)
     schema = _base_problem_schema()
     schema["title"] = fault.effective_schema_name
-    properties = cast("dict[str, Any]", schema["properties"])
+    properties = cast(dict[str, Any], schema["properties"])
     properties.update(
         {
             "type": {"type": "string", "format": "uri-reference", "const": type_uri},
@@ -119,7 +119,7 @@ def compile_fault_schema(
         }
     )
 
-    required = cast("list[str]", schema["required"])
+    required = cast(list[str], schema["required"])
     if fault.extensions_model is not None:
         extension_schema = fault.extensions_model.model_json_schema(
             mode="serialization", by_alias=True
@@ -222,7 +222,7 @@ def _merge_fault_responses(
 def _merge_response_members(
     existing: dict[str, Any], generated: dict[str, Any], status: str
 ) -> None:
-    generated_headers = cast("dict[str, Any]", generated.get("headers", {}))
+    generated_headers = cast(dict[str, Any], generated.get("headers", {}))
     existing_headers = existing.setdefault("headers", {}) if generated_headers else {}
     for name, definition in generated_headers.items():
         collision = next(
@@ -259,7 +259,7 @@ def _request_validation_schema(registry: FaultRegistry) -> dict[str, Any]:
         msg = "type_base is required for the request validation schema"
         raise FaultConfigurationError(msg)
     schema = _base_problem_schema()
-    properties = cast("dict[str, Any]", schema["properties"])
+    properties = cast(dict[str, Any], schema["properties"])
     properties.update(
         {
             "type": {
@@ -290,15 +290,15 @@ def _request_validation_schema(registry: FaultRegistry) -> dict[str, Any]:
             },
         }
     )
-    cast("list[str]", schema["required"]).append("errors")
+    cast(list[str], schema["required"]).append("errors")
     schema["title"] = "RequestValidationProblem"
     return schema
 
 
-def _effective_http_contracts(
+def effective_http_contracts(
     app: FastAPI,
 ) -> list[tuple[str, set[str], tuple[AnyFault, ...]]]:
-    contracts = list(_iter_http_contracts(app.router))
+    contracts = list(iter_http_contracts(app.router))
     contexts = _effective_api_routes(app)
     if len(contracts) != len(contexts):
         msg = "FastAPI route traversal changed; cannot compile fault contracts safely"
@@ -309,9 +309,9 @@ def _effective_http_contracts(
         if original is not route:
             msg = "FastAPI route order changed; cannot compile fault contracts safely"
             raise FaultConfigurationError(msg)
-        path = cast("str", getattr(context, "path", route.path))
+        path = cast(str, getattr(context, "path", route.path))
         methods = set(
-            cast("set[str] | None", getattr(context, "methods", route.methods)) or ()
+            cast(set[str] | None, getattr(context, "methods", route.methods)) or ()
         )
         result.append((path, methods, faults))
     return result

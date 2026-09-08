@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from fastapi.types import DecoratedCallable
 
 from fastapi_faults import Fault, FaultConfigurationError, FaultRegistry
-from fastapi_faults.router import _get_http_metadata, _iter_http_contracts
+from fastapi_faults.router import _get_http_metadata, iter_http_contracts
 
 
 class FeatureUnavailable(Exception):
@@ -49,7 +49,7 @@ def test_http_decorators_accept_raises_and_preserve_fastapi_options() -> None:
     app = FastAPI()
     app.include_router(router)
     response = TestClient(app).get("/items/42")
-    route, faults = next(_iter_http_contracts(app.router))
+    route, faults = next(iter_http_contracts(app.router))
     metadata = _get_http_metadata(route.endpoint)
 
     assert metadata is not None
@@ -115,8 +115,8 @@ def test_nested_and_repeated_inclusion_preserves_order_without_mutation() -> Non
 
     inner_route = cast("APIRoute", inner.routes[0])
     inner_metadata = _get_http_metadata(inner_route.endpoint)
-    outer_contracts = list(_iter_http_contracts(outer))
-    copied = list(_iter_http_contracts(app.router))
+    outer_contracts = list(iter_http_contracts(outer))
+    copied = list(iter_http_contracts(app.router))
 
     assert inner_metadata is not None
     assert inner_metadata.raises == (inner_fault, operation_fault)
@@ -150,7 +150,7 @@ def test_stock_router_can_include_fault_router_without_losing_metadata() -> None
 
     stock = APIRouter(prefix="/stock")
     stock.include_router(feature)
-    route, faults = next(_iter_http_contracts(stock))
+    route, faults = next(iter_http_contracts(stock))
     metadata = _get_http_metadata(route.endpoint)
     assert metadata is not None
     assert metadata.raises == (fault,)

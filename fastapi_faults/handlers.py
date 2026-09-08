@@ -14,22 +14,22 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import ExceptionHandler
 
-from .openapi import install_openapi
-from .registry import FaultRegistry
-from .rendering import render_problem
-from .router import (
-    _ENDPOINT_ENTERED_SCOPE_KEY,
-    _INSTALLED_REGISTRY_STATE_KEY,
-    _deny_handshake,
-    _effective_websocket_metadata,
-    _get_websocket_metadata,
-    _iter_http_contracts,
-    _iter_websocket_contracts,
-    _resolve_declared,
+from fastapi_faults.openapi import install_openapi
+from fastapi_faults.registry import FaultRegistry
+from fastapi_faults.rendering import render_problem
+from fastapi_faults.router import (
+    ENDPOINT_ENTERED_SCOPE_KEY,
+    INSTALLED_REGISTRY_STATE_KEY,
+    deny_handshake,
+    effective_websocket_metadata,
+    get_websocket_metadata,
+    iter_http_contracts,
+    iter_websocket_contracts,
+    resolve_declared,
 )
-from .types import FaultConfigurationError, JsonValue
+from fastapi_faults.types import FaultConfigurationError, JsonValue
 
-logger = logging.getLogger("fastapi_faults")
+logger = logging.getLogger(__name__)
 
 
 def install_handlers(
@@ -41,7 +41,7 @@ def install_handlers(
     include_unhandled_error: bool,
 ) -> None:
     """Install handlers once while preserving user-owned handler conflicts."""
-    installed = getattr(app.state, _INSTALLED_REGISTRY_STATE_KEY, None)
+    installed = getattr(app.state, INSTALLED_REGISTRY_STATE_KEY, None)
     if installed is registry:
         return
     if installed is not None:
@@ -51,7 +51,7 @@ def install_handlers(
         msg = "install FaultRegistry before generating or caching OpenAPI"
         raise FaultConfigurationError(msg)
 
-    registry._require_resolved()
+    registry.require_resolved()
     _validate_route_contracts(registry, app)
     if (
         include_validation_error or include_unhandled_error
@@ -96,13 +96,13 @@ def install_handlers(
         app,
         include_validation_error=include_validation_error,
     )
-    setattr(app.state, _INSTALLED_REGISTRY_STATE_KEY, registry)
+    setattr(app.state, INSTALLED_REGISTRY_STATE_KEY, registry)
 
 
 def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
-    for http_route, http_faults in _iter_http_contracts(app.router):
+    for http_route, http_faults in iter_http_contracts(app.router):
         for http_fault in http_faults:
-            if not registry._contains(http_fault):
+            if not registry.contains(http_fault):
                 msg = (
                     f"route {http_route.path!r} declares fault "
                     f"{http_fault.code!r}, but the "
@@ -110,11 +110,11 @@ def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
                 )
                 raise FaultConfigurationError(msg)
 
-    for websocket_route, handshake_faults, close_faults in _iter_websocket_contracts(
+    for websocket_route, handshake_faults, close_faults in iter_websocket_contracts(
         app.router
     ):
         for handshake_fault in handshake_faults:
-            if not registry._contains(handshake_fault):
+            if not registry.contains(handshake_fault):
                 msg = (
                     f"WebSocket route {websocket_route.path!r} declares handshake "
                     f"fault {handshake_fault.code!r}, but the installed registry "
@@ -122,7 +122,7 @@ def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
                 )
                 raise FaultConfigurationError(msg)
         for close_fault in close_faults:
-            if not registry._contains_websocket(close_fault):
+            if not registry.contains_websocket(close_fault):
                 msg = (
                     f"WebSocket route {websocket_route.path!r} declares close code "
                     f"{close_fault.close_code}, but the installed registry does "
@@ -142,7 +142,7 @@ def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
         fault = registry.resolve(exception)
         if fault is None:
             raise exception
-        type_uri = registry._type_uri_for(fault)
+        type_uri = registry.type_uri_for(fault)
         if type_uri is None:
             msg = f"fault {fault.code!r} has no resolved problem type URI"
             raise FaultConfigurationError(msg)
@@ -159,23 +159,23 @@ def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
             return _internal_error_response(registry)
         return _problem_response(problem.as_dict(), fault.status, headers=headers)
 
-    return cast("ExceptionHandler", handler)
+    return cast(ExceptionHandler, handler)
 
 
 async def _handle_dependency_fault(
     websocket: WebSocket, exception: Exception, registry: FaultRegistry
 ) -> None:
-    if websocket.scope.get(_ENDPOINT_ENTERED_SCOPE_KEY):
+    if websocket.scope.get(ENDPOINT_ENTERED_SCOPE_KEY):
         raise exception
     route = websocket.scope.get("route")
-    metadata = _get_websocket_metadata(getattr(route, "endpoint", None))
+    metadata = get_websocket_metadata(getattr(route, "endpoint", None))
     if metadata is None:
         raise exception
-    metadata = _effective_websocket_metadata(websocket, metadata)
-    fault = _resolve_declared(exception, metadata.handshake_raises)
+    metadata = effective_websocket_metadata(websocket, metadata)
+    fault = resolve_declared(exception, metadata.handshake_raises)
     if fault is None:
         raise exception
-    await _deny_handshake(websocket, fault, exception, registry)
+    await deny_handshake(websocket, fault, exception, registry)
 
 
 async def _http_exception_handler(request: Request, exception: Exception) -> Response:
@@ -216,7 +216,7 @@ def _request_validation_handler(registry: FaultRegistry) -> ExceptionHandler:
         }
         return _problem_response(payload, 422)
 
-    return cast("ExceptionHandler", handler)
+    return cast(ExceptionHandler, handler)
 
 
 def _response_validation_handler(registry: FaultRegistry) -> ExceptionHandler:
@@ -230,7 +230,7 @@ def _response_validation_handler(registry: FaultRegistry) -> ExceptionHandler:
         )
         return _internal_error_response(registry)
 
-    return cast("ExceptionHandler", handler)
+    return cast(ExceptionHandler, handler)
 
 
 def _unhandled_handler(registry: FaultRegistry) -> ExceptionHandler:
@@ -245,7 +245,7 @@ def _unhandled_handler(registry: FaultRegistry) -> ExceptionHandler:
         )
         return _internal_error_response(registry)
 
-    return cast("ExceptionHandler", handler)
+    return cast(ExceptionHandler, handler)
 
 
 def _validation_error(error: dict[str, object]) -> JsonValue:
@@ -261,7 +261,7 @@ def _validation_error(error: dict[str, object]) -> JsonValue:
         result["pointer"] = pointer.rstrip("/") or "#"
     elif source in {"path", "query", "header", "cookie"} and len(parts) > 1:
         result["parameter"] = str(parts[-1])
-        result["in"] = cast("str", source)
+        result["in"] = cast(str, source)
     return result
 
 

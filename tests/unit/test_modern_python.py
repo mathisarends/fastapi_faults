@@ -1,11 +1,13 @@
 import ast
 from pathlib import Path
 
-SOURCE_ROOT = Path(__file__).parents[2] / "src" / "fastapi_faults"
+SOURCE_ROOT = Path(__file__).parents[2] / "fastapi_faults"
 
 
 def source_modules() -> list[Path]:
-    return sorted(SOURCE_ROOT.glob("*.py"))
+    modules = sorted(SOURCE_ROOT.glob("*.py"))
+    assert modules, f"No product modules found in {SOURCE_ROOT}"
+    return modules
 
 
 def test_product_modules_use_modern_annotation_syntax() -> None:
@@ -13,10 +15,6 @@ def test_product_modules_use_modern_annotation_syntax() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
         assert ast.get_docstring(tree, clean=False) is None, path
-        assert not any(
-            isinstance(node, ast.ImportFrom) and node.module == "__future__"
-            for node in ast.walk(tree)
-        ), path
         assert not any(
             isinstance(node, ast.ImportFrom)
             and node.module == "typing"

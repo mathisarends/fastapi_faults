@@ -1,10 +1,15 @@
 import math
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .types import CODE_PATTERN, JsonValue, is_absolute_uri, is_uri_reference
+from fastapi_faults.types import (
+    CODE_PATTERN,
+    JsonValue,
+    is_absolute_uri,
+    is_uri_reference,
+)
 
 
 class Problem(BaseModel):
@@ -62,7 +67,7 @@ class Problem(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _validate_extensions(self) -> "Problem":
+    def _validate_extensions(self) -> Self:
         for name, value in (self.__pydantic_extra__ or {}).items():
             if not _is_json_value(value):
                 msg = f"extension member {name!r} must be JSON-serializable"
@@ -72,7 +77,7 @@ class Problem(BaseModel):
     def as_dict(self) -> dict[str, JsonValue]:
         """Serialize to a JSON-native object, omitting absent optional members."""
         return cast(
-            "dict[str, JsonValue]",
+            dict[str, JsonValue],
             self.model_dump(mode="json", exclude_none=True),
         )
 

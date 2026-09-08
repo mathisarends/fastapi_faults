@@ -12,21 +12,22 @@ from fastapi.types import DecoratedCallable
 from starlette.routing import compile_path
 from starlette.websockets import WebSocketState
 
-from .fault import Fault
-from .registry import AnyFault, AnyWebSocketFault, FaultRegistry
-from .rendering import render_problem
-from .types import FaultConfigurationError
-from .websocket import WebSocketFault
+from fastapi_faults.fault import Fault
+from fastapi_faults.registry import AnyFault, AnyWebSocketFault, FaultRegistry
+from fastapi_faults.rendering import render_problem
+from fastapi_faults.types import FaultConfigurationError
+from fastapi_faults.validation import unique_instances
+from fastapi_faults.websocket import WebSocketFault
 
 _METADATA_ATTRIBUTE = "__fastapi_faults_websocket__"
 _HTTP_METADATA_ATTRIBUTE = "__fastapi_faults_http__"
-_ENDPOINT_ENTERED_SCOPE_KEY = "fastapi_faults.websocket_endpoint_entered"
-_INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
-logger = logging.getLogger("fastapi_faults")
+ENDPOINT_ENTERED_SCOPE_KEY = "fastapi_faults.websocket_endpoint_entered"
+INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
-class _WebSocketMetadata:
+class WebSocketMetadata:
     registry: FaultRegistry
     handshake_raises: tuple[AnyFault, ...]
     closes: tuple[AnyWebSocketFault, ...]
@@ -96,9 +97,9 @@ class FaultRouter(APIRouter):
         *,
         dependencies: Sequence[params.Depends] | None = None,
     ) -> None:
-        metadata = _get_websocket_metadata(endpoint)
+        metadata = get_websocket_metadata(endpoint)
         if metadata is not None:
-            metadata = _WebSocketMetadata(
+            metadata = WebSocketMetadata(
                 registry=metadata.registry,
                 handshake_raises=_ordered_identity_union(
                     self.handshake_raises, metadata.handshake_raises
@@ -204,7 +205,7 @@ class FaultRouter(APIRouter):
             self.closes,
             _validate_websocket_faults(self.registry, closes),
         )
-        metadata = _WebSocketMetadata(
+        metadata = WebSocketMetadata(
             registry=self.registry,
             handshake_raises=route_handshake_faults,
             closes=route_close_faults,
@@ -214,10 +215,10 @@ class FaultRouter(APIRouter):
             @wraps(func)
             async def endpoint(*args: Any, **kwargs: Any) -> object:
                 websocket = _find_websocket(args, kwargs)
-                websocket.scope[_ENDPOINT_ENTERED_SCOPE_KEY] = True
+                websocket.scope[ENDPOINT_ENTERED_SCOPE_KEY] = True
                 try:
                     result = func(*args, **kwargs)
-                    return await cast("Awaitable[object]", result)
+                    return await cast(Awaitable[object], result)
                 except Exception as exception:
                     if await _handle_endpoint_exception(websocket, exception, metadata):
                         return None
@@ -227,7 +228,7 @@ class FaultRouter(APIRouter):
             super(FaultRouter, self).websocket(
                 path, name=name, dependencies=dependencies
             )(endpoint)
-            return cast("DecoratedCallable", endpoint)
+            return cast(DecoratedCallable, endpoint)
 
         return decorator
 
@@ -266,7 +267,7 @@ def _install_http_signatures() -> None:
                 annotation=Sequence[AnyFault],
             ),
         )
-        cast("Any", getattr(FaultRouter, name)).__signature__ = base.replace(
+        cast(Any, getattr(FaultRouter, name)).__signature__ = base.replace(
             parameters=parameters
         )
 
@@ -274,18 +275,19 @@ def _install_http_signatures() -> None:
 _install_http_signatures()
 
 
-def _get_websocket_metadata(endpoint: object) -> _WebSocketMetadata | None:
+def get_websocket_metadata(endpoint: object) -> WebSocketMetadata | None:
+    """Read the WebSocket contract attached to an endpoint, if present."""
     metadata = getattr(endpoint, _METADATA_ATTRIBUTE, None)
-    return metadata if isinstance(metadata, _WebSocketMetadata) else None
+    return metadata if isinstance(metadata, WebSocketMetadata) else None
 
 
 def _with_websocket_metadata(
-    endpoint: Callable[..., Any], metadata: _WebSocketMetadata
+    endpoint: Callable[..., Any], metadata: WebSocketMetadata
 ) -> Callable[..., Any]:
     @wraps(endpoint)
     async def marked_endpoint(*args: Any, **kwargs: Any) -> object:
         result = endpoint(*args, **kwargs)
-        return await cast("Awaitable[object]", result)
+        return await cast(Awaitable[object], result)
 
     setattr(marked_endpoint, _METADATA_ATTRIBUTE, metadata)
     return marked_endpoint
@@ -296,9 +298,10 @@ def _get_http_metadata(endpoint: object) -> _HttpMetadata | None:
     return metadata if isinstance(metadata, _HttpMetadata) else None
 
 
-def _iter_http_contracts(
+def iter_http_contracts(
     router: APIRouter,
 ) -> Iterator[tuple[APIRoute, tuple[AnyFault, ...]]]:
+    """Yield HTTP routes with their inherited and local fault declarations."""
     inherited = router.raises if isinstance(router, FaultRouter) else ()
     yield from _walk_http_contracts(router.routes, inherited)
 
@@ -322,7 +325,7 @@ def _walk_http_contracts(
         yield route, _ordered_identity_union(inherited, declared)
 
 
-def _iter_websocket_contracts(
+def iter_websocket_contracts(
     router: APIRouter,
 ) -> Iterator[
     tuple[
@@ -362,7 +365,7 @@ def _walk_websocket_contracts(
             continue
         if not isinstance(route, APIWebSocketRoute):
             continue
-        metadata = _get_websocket_metadata(route.endpoint)
+        metadata = get_websocket_metadata(route.endpoint)
         handshake = metadata.handshake_raises if metadata is not None else ()
         closes = metadata.closes if metadata is not None else ()
         yield (
@@ -408,35 +411,29 @@ def _validate_http_faults(
     parameter: str,
 ) -> tuple[AnyFault, ...]:
     validated: list[AnyFault] = []
-    for index, candidate in enumerate(cast("Sequence[object]", faults)):
-        if not isinstance(candidate, Fault):
-            msg = f"{parameter}[{index}] must be a Fault instance"
-            raise FaultConfigurationError(msg)
-        if not registry._contains(candidate):
+    for candidate in unique_instances(faults, Fault, parameter=parameter):
+        if not registry.contains(candidate):
             msg = (
                 f"fault {candidate.code!r} in {parameter} is not in the router registry"
             )
             raise FaultConfigurationError(msg)
         validated.append(candidate)
-    return _ordered_identity_union(tuple(validated))
+    return tuple(validated)
 
 
 def _validate_websocket_faults(
     registry: FaultRegistry, faults: Sequence[AnyWebSocketFault]
 ) -> tuple[AnyWebSocketFault, ...]:
     validated: list[AnyWebSocketFault] = []
-    for index, candidate in enumerate(cast("Sequence[object]", faults)):
-        if not isinstance(candidate, WebSocketFault):
-            msg = f"closes[{index}] must be a WebSocketFault instance"
-            raise FaultConfigurationError(msg)
-        if not registry._contains_websocket(candidate):
+    for candidate in unique_instances(faults, WebSocketFault, parameter="closes"):
+        if not registry.contains_websocket(candidate):
             msg = (
                 f"WebSocket fault with close code {candidate.close_code} in closes "
                 "is not in the router registry"
             )
             raise FaultConfigurationError(msg)
         validated.append(candidate)
-    return _ordered_identity_union(tuple(validated))
+    return tuple(validated)
 
 
 def _ordered_identity_union[ItemT](*groups: Sequence[ItemT]) -> tuple[ItemT, ...]:
@@ -463,22 +460,22 @@ def _find_websocket(args: tuple[Any, ...], kwargs: dict[str, Any]) -> WebSocket:
 async def _handle_endpoint_exception(
     websocket: WebSocket,
     exception: Exception,
-    metadata: _WebSocketMetadata,
+    metadata: WebSocketMetadata,
 ) -> bool:
-    metadata = _effective_websocket_metadata(websocket, metadata)
+    metadata = effective_websocket_metadata(websocket, metadata)
     if websocket.application_state == WebSocketState.CONNECTING:
-        handshake_fault = _resolve_declared(exception, metadata.handshake_raises)
+        handshake_fault = resolve_declared(exception, metadata.handshake_raises)
         if handshake_fault is None:
             return False
-        await _deny_handshake(websocket, handshake_fault, exception, metadata.registry)
+        await deny_handshake(websocket, handshake_fault, exception, metadata.registry)
         return True
 
     if websocket.application_state == WebSocketState.CONNECTED:
-        close_fault = _resolve_declared(exception, metadata.closes)
+        close_fault = resolve_declared(exception, metadata.closes)
         if close_fault is None:
             return False
         try:
-            reason = close_fault._render_reason(exception)
+            reason = close_fault.render_reason(exception)
         except Exception:
             logger.exception(
                 "WebSocket fault reason callback failed",
@@ -495,15 +492,16 @@ async def _handle_endpoint_exception(
     return False
 
 
-def _effective_websocket_metadata(
-    websocket: WebSocket, metadata: _WebSocketMetadata
-) -> _WebSocketMetadata:
+def effective_websocket_metadata(
+    websocket: WebSocket, metadata: WebSocketMetadata
+) -> WebSocketMetadata:
+    """Include contracts inherited through routers for the connected route."""
     app = websocket.scope.get("app")
     router = getattr(app, "router", None)
     routes = getattr(app, "routes", None)
     if not isinstance(router, APIRouter) or not isinstance(routes, Sequence):
         return metadata
-    contracts = list(_iter_websocket_contracts(router))
+    contracts = list(iter_websocket_contracts(router))
     contexts = _effective_websocket_routes(routes)
     if len(contracts) != len(contexts):
         return metadata
@@ -520,7 +518,7 @@ def _effective_websocket_metadata(
         )
         pattern, _, _ = compile_path(path)
         if pattern.fullmatch(request_path):
-            return _WebSocketMetadata(
+            return WebSocketMetadata(
                 registry=metadata.registry,
                 handshake_raises=handshake,
                 closes=closes,
@@ -540,12 +538,13 @@ def _effective_websocket_routes(routes: Sequence[Any]) -> list[object]:
     ]
 
 
-async def _deny_handshake(
+async def deny_handshake(
     websocket: WebSocket,
     fault: AnyFault,
     exception: Exception,
     registry: FaultRegistry,
 ) -> None:
+    """Render a declared HTTP fault before a WebSocket connection is accepted."""
     if "websocket.http.response" not in websocket.scope.get("extensions", {}):
         msg = (
             "WebSocket handshake fault requires the ASGI "
@@ -553,7 +552,7 @@ async def _deny_handshake(
         )
         raise RuntimeError(msg) from exception
     registry = _effective_registry(websocket, registry, fault)
-    type_uri = registry._type_uri_for(fault)
+    type_uri = registry.type_uri_for(fault)
     if type_uri is None:
         msg = f"fault {fault.code!r} has no resolved problem type URI"
         raise FaultConfigurationError(msg)
@@ -572,15 +571,16 @@ def _effective_registry(
 ) -> FaultRegistry:
     app = websocket.scope.get("app")
     state = getattr(app, "state", None)
-    installed = getattr(state, _INSTALLED_REGISTRY_STATE_KEY, None)
-    if isinstance(installed, FaultRegistry) and installed._contains(fault):
+    installed = getattr(state, INSTALLED_REGISTRY_STATE_KEY, None)
+    if isinstance(installed, FaultRegistry) and installed.contains(fault):
         return installed
     return feature_registry
 
 
-def _resolve_declared[FaultT: AnyFault | AnyWebSocketFault](
+def resolve_declared[FaultT: AnyFault | AnyWebSocketFault](
     exception: Exception, faults: Sequence[FaultT]
 ) -> FaultT | None:
+    """Find the most specific declaration matching the exception's MRO."""
     by_exception = {fault.exception: fault for fault in faults}
     for exception_class in type(exception).__mro__:
         fault = by_exception.get(exception_class)

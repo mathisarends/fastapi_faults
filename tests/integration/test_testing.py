@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fastapi_faults import Fault, FaultConfigurationError, FaultRegistry
-from fastapi_faults.testing import (
+from tests.helpers import (
     assert_no_undeclared_faults,
     assert_openapi_contract,
     assert_problem,

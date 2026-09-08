@@ -8,7 +8,7 @@ from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
-from .types import (
+from fastapi_faults.types import (
     CODE_PATTERN,
     Detail,
     Extensions,
@@ -146,7 +146,7 @@ class Fault[ExceptionT: Exception]:
                 msg = "static extensions do not validate against extensions_model"
                 raise FaultConfigurationError(msg) from error
             serialized = cast(
-                "dict[str, JsonValue]",
+                dict[str, JsonValue],
                 validated.model_dump(mode="json", by_alias=True),
             )
             frozen_extensions = _freeze_json_mapping(serialized, path="extensions")
@@ -174,7 +174,7 @@ class Fault[ExceptionT: Exception]:
             msg = "headers must be a mapping, callable, or None"
             raise FaultConfigurationError(msg)
         if isinstance(headers, Mapping):
-            frozen_headers = _freeze_headers(headers, path="headers")
+            frozen_headers = freeze_headers(headers, path="headers")
             object.__setattr__(self, "headers", frozen_headers)
 
         if openapi_headers is not None:
@@ -237,21 +237,22 @@ def _freeze_json(value: object, *, path: str) -> JsonValue:
         return value
     if isinstance(value, list):
         return cast(
-            "JsonValue",
+            JsonValue,
             tuple(
                 _freeze_json(item, path=f"{path}[{index}]")
                 for index, item in enumerate(value)
             ),
         )
     if isinstance(value, Mapping):
-        return cast("JsonValue", _freeze_json_mapping(value, path=path))
+        return cast(JsonValue, _freeze_json_mapping(value, path=path))
     msg = f"{path} contains a non-JSON value of type {type(value).__name__}"
     raise FaultConfigurationError(msg)
 
 
-def _freeze_headers[KeyT, ValueT](
+def freeze_headers[KeyT, ValueT](
     value: Mapping[KeyT, ValueT], *, path: str
 ) -> Mapping[str, str]:
+    """Validate response headers and return an immutable detached mapping."""
     frozen: dict[str, str] = {}
     for name, header_value in value.items():
         header_name = _validate_header_name(name, path=path)

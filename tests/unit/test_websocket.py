@@ -23,9 +23,9 @@ def test_websocket_fault_renders_static_and_dynamic_reasons() -> None:
     dynamic = make_fault(reason=lambda _exception: "Expired dynamically")
     empty = make_fault(reason=None)
 
-    assert static._render_reason(SessionExpired()) == "Session expired"
-    assert dynamic._render_reason(SessionExpired()) == "Expired dynamically"
-    assert empty._render_reason(SessionExpired()) == ""
+    assert static.render_reason(SessionExpired()) == "Session expired"
+    assert dynamic.render_reason(SessionExpired()) == "Expired dynamically"
+    assert empty.render_reason(SessionExpired()) == ""
 
 
 @pytest.mark.parametrize(
@@ -65,9 +65,9 @@ def test_websocket_fault_validates_callback_result() -> None:
     too_long = make_fault(reason=lambda _: "🙂" * 31)
 
     with pytest.raises(FaultConfigurationError):
-        invalid._render_reason(SessionExpired())
+        invalid.render_reason(SessionExpired())
     with pytest.raises(FaultConfigurationError):
-        too_long._render_reason(SessionExpired())
+        too_long.render_reason(SessionExpired())
 
 
 def test_websocket_fault_is_frozen() -> None:
