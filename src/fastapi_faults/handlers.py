@@ -22,6 +22,8 @@ from .router import (
     _INSTALLED_REGISTRY_STATE_KEY,
     _deny_handshake,
     _get_websocket_metadata,
+    _iter_http_contracts,
+    _iter_websocket_contracts,
     _resolve_declared,
 )
 
@@ -48,6 +50,7 @@ def install_handlers(
         raise FaultConfigurationError(msg)
 
     registry._require_resolved()
+    _validate_route_contracts(registry, app)
     if (
         include_validation_error or include_unhandled_error
     ) and registry.type_base is None:
@@ -87,6 +90,38 @@ def install_handlers(
         app.add_exception_handler(Exception, _unhandled_handler(registry))
 
     setattr(app.state, _INSTALLED_REGISTRY_STATE_KEY, registry)
+
+
+def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
+    for http_route, http_faults in _iter_http_contracts(app.router):
+        for http_fault in http_faults:
+            if not registry._contains(http_fault):
+                msg = (
+                    f"route {http_route.path!r} declares fault "
+                    f"{http_fault.code!r}, but the "
+                    "installed registry does not contain that exact definition"
+                )
+                raise FaultConfigurationError(msg)
+
+    for websocket_route, handshake_faults, close_faults in _iter_websocket_contracts(
+        app.router
+    ):
+        for handshake_fault in handshake_faults:
+            if not registry._contains(handshake_fault):
+                msg = (
+                    f"WebSocket route {websocket_route.path!r} declares handshake "
+                    f"fault {handshake_fault.code!r}, but the installed registry "
+                    "does not contain that exact definition"
+                )
+                raise FaultConfigurationError(msg)
+        for close_fault in close_faults:
+            if not registry._contains_websocket(close_fault):
+                msg = (
+                    f"WebSocket route {websocket_route.path!r} declares close code "
+                    f"{close_fault.close_code}, but the installed registry does "
+                    "not contain that exact definition"
+                )
+                raise FaultConfigurationError(msg)
 
 
 def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:

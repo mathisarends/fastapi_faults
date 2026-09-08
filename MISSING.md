@@ -13,7 +13,7 @@ tests are committed together.
   - Preserve FastAPI signatures and route metadata through nested and repeated
     `include_router()` calls.
   - Support synchronous and asynchronous endpoints and custom response classes.
-- [ ] Validate the installed application graph.
+- [x] Validate the installed application graph.
   - Reject routes whose fault definitions are absent from the installed
     application registry.
   - Perform validation during installation, before the first request or

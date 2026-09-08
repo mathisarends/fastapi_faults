@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, params
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.types import DecoratedCallable
 from starlette.websockets import WebSocketState
 
@@ -243,6 +243,56 @@ def _walk_http_contracts(
         metadata = _get_http_metadata(route.endpoint)
         declared = metadata.raises if metadata is not None else ()
         yield route, _ordered_identity_union(inherited, declared)
+
+
+def _iter_websocket_contracts(
+    router: APIRouter,
+) -> Iterator[
+    tuple[
+        APIWebSocketRoute,
+        tuple[AnyFault, ...],
+        tuple[AnyWebSocketFault, ...],
+    ]
+]:
+    handshake = router.handshake_raises if isinstance(router, FaultRouter) else ()
+    closes = router.closes if isinstance(router, FaultRouter) else ()
+    yield from _walk_websocket_contracts(router.routes, handshake, closes)
+
+
+def _walk_websocket_contracts(
+    routes: Sequence[object],
+    inherited_handshake: tuple[AnyFault, ...],
+    inherited_closes: tuple[AnyWebSocketFault, ...],
+) -> Iterator[
+    tuple[
+        APIWebSocketRoute,
+        tuple[AnyFault, ...],
+        tuple[AnyWebSocketFault, ...],
+    ]
+]:
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if isinstance(included, APIRouter):
+            handshake = (
+                included.handshake_raises if isinstance(included, FaultRouter) else ()
+            )
+            closes = included.closes if isinstance(included, FaultRouter) else ()
+            yield from _walk_websocket_contracts(
+                included.routes,
+                _ordered_identity_union(inherited_handshake, handshake),
+                _ordered_identity_union(inherited_closes, closes),
+            )
+            continue
+        if not isinstance(route, APIWebSocketRoute):
+            continue
+        metadata = _get_websocket_metadata(route.endpoint)
+        handshake = metadata.handshake_raises if metadata is not None else ()
+        closes = metadata.closes if metadata is not None else ()
+        yield (
+            route,
+            _ordered_identity_union(inherited_handshake, handshake),
+            _ordered_identity_union(inherited_closes, closes),
+        )
 
 
 def _with_http_metadata(

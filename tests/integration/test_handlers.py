@@ -321,3 +321,65 @@ def test_install_rejects_custom_framework_handler(
 
     with pytest.raises(FaultConfigurationError):
         make_registry().install(app)
+
+
+def test_install_rejects_fault_router_missing_from_application_registry() -> None:
+    missing = make_fault()
+    feature_registry = FaultRegistry(faults=[missing], name="sessions")
+    router = feature_registry.router()
+
+    @router.get("/sessions", raises=[missing])
+    async def endpoint() -> None:
+        return None
+
+    app = FastAPI()
+    app.include_router(router)
+    application_registry = FaultRegistry(
+        faults=[], type_base="https://example.test/problems"
+    )
+
+    with pytest.raises(
+        FaultConfigurationError,
+        match="does not contain that exact definition",
+    ):
+        application_registry.install(app)
+
+
+def test_install_accepts_route_from_merged_feature_registry() -> None:
+    missing = make_fault()
+    feature_registry = FaultRegistry(faults=[missing], name="sessions")
+    router = feature_registry.router()
+
+    @router.get("/sessions", raises=[missing])
+    async def endpoint() -> None:
+        return None
+
+    app = FastAPI()
+    app.include_router(router)
+    application_registry = FaultRegistry.merge(
+        feature_registry,
+        type_base="https://example.test/problems",
+    )
+
+    application_registry.install(app)
+
+    assert app.state._fastapi_faults_registry is application_registry
+
+
+def test_install_rejects_missing_websocket_close_definition() -> None:
+    expired = WebSocketFault(SessionExpired, close_code=4001)
+    feature_registry = FaultRegistry(faults=[], websocket_faults=[expired])
+    router = feature_registry.router()
+
+    @router.websocket("/events", closes=[expired])
+    async def endpoint(websocket: WebSocket) -> None:
+        await websocket.accept()
+
+    app = FastAPI()
+    app.include_router(router)
+    application_registry = FaultRegistry(
+        faults=[], type_base="https://example.test/problems"
+    )
+
+    with pytest.raises(FaultConfigurationError, match="close code 4001"):
+        application_registry.install(app)
