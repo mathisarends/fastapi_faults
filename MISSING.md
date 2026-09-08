@@ -41,7 +41,7 @@ tests are committed together.
 
 - [x] Add `fastapi_faults.testing` helpers for contract and undeclared-fault
   assertions.
-- [ ] Add focused integration coverage for framework 404/405 responses,
+- [x] Add focused integration coverage for framework 404/405 responses,
   request validation in every input location, response validation, debug mode,
   callback failures, custom handlers, and custom response classes.
 - [x] Add automated FastAPI decorator-signature parity checks.
