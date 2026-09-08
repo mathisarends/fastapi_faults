@@ -1,11 +1,13 @@
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import wraps
+from inspect import iscoroutinefunction
 from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, params
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.types import DecoratedCallable
 from starlette.websockets import WebSocketState
 
@@ -16,6 +18,7 @@ from .rendering import render_problem
 from .websocket import WebSocketFault
 
 _METADATA_ATTRIBUTE = "__fastapi_faults_websocket__"
+_HTTP_METADATA_ATTRIBUTE = "__fastapi_faults_http__"
 _ENDPOINT_ENTERED_SCOPE_KEY = "fastapi_faults.websocket_endpoint_entered"
 _INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
 _logger = logging.getLogger("fastapi_faults")
@@ -26,6 +29,11 @@ class _WebSocketMetadata:
     registry: FaultRegistry
     handshake_raises: tuple[AnyFault, ...]
     closes: tuple[AnyWebSocketFault, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _HttpMetadata:
+    raises: tuple[AnyFault, ...]
 
 
 class FaultRouter(APIRouter):
@@ -47,6 +55,109 @@ class FaultRouter(APIRouter):
             registry, handshake_raises, parameter="handshake_raises"
         )
         self.closes = _validate_websocket_faults(registry, closes)
+
+    def api_route(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        operation_faults = _validate_http_faults(
+            self.registry, raises, parameter="raises"
+        )
+        register = super().api_route(path, **kwargs)
+
+        def decorator(func: DecoratedCallable) -> DecoratedCallable:
+            endpoint = _with_http_metadata(func, operation_faults)
+            register(endpoint)
+            return func
+
+        return decorator
+
+    def add_api_route(
+        self,
+        path: str,
+        endpoint: Callable[..., Any],
+        **kwargs: Any,
+    ) -> None:
+        metadata = _get_http_metadata(endpoint)
+        operation_faults = metadata.raises if metadata is not None else ()
+        effective_faults = _ordered_identity_union(self.raises, operation_faults)
+        marked_endpoint = _with_http_metadata(endpoint, effective_faults, replace=True)
+        super().add_api_route(path, marked_endpoint, **kwargs)
+
+    def get(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["GET"], raises=raises, **kwargs)
+
+    def post(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["POST"], raises=raises, **kwargs)
+
+    def put(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["PUT"], raises=raises, **kwargs)
+
+    def patch(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["PATCH"], raises=raises, **kwargs)
+
+    def delete(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["DELETE"], raises=raises, **kwargs)
+
+    def options(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["OPTIONS"], raises=raises, **kwargs)
+
+    def head(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["HEAD"], raises=raises, **kwargs)
+
+    def trace(
+        self,
+        path: str,
+        *,
+        raises: Sequence[AnyFault] = (),
+        **kwargs: Any,
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        return self.api_route(path, methods=["TRACE"], raises=raises, **kwargs)
 
     def websocket(
         self,
@@ -101,6 +212,66 @@ Router = FaultRouter
 def _get_websocket_metadata(endpoint: object) -> _WebSocketMetadata | None:
     metadata = getattr(endpoint, _METADATA_ATTRIBUTE, None)
     return metadata if isinstance(metadata, _WebSocketMetadata) else None
+
+
+def _get_http_metadata(endpoint: object) -> _HttpMetadata | None:
+    metadata = getattr(endpoint, _HTTP_METADATA_ATTRIBUTE, None)
+    return metadata if isinstance(metadata, _HttpMetadata) else None
+
+
+def _iter_http_contracts(
+    router: APIRouter,
+) -> Iterator[tuple[APIRoute, tuple[AnyFault, ...]]]:
+    inherited = router.raises if isinstance(router, FaultRouter) else ()
+    yield from _walk_http_contracts(router.routes, inherited)
+
+
+def _walk_http_contracts(
+    routes: Sequence[object], inherited: tuple[AnyFault, ...]
+) -> Iterator[tuple[APIRoute, tuple[AnyFault, ...]]]:
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if isinstance(included, APIRouter):
+            defaults = included.raises if isinstance(included, FaultRouter) else ()
+            yield from _walk_http_contracts(
+                included.routes,
+                _ordered_identity_union(inherited, defaults),
+            )
+            continue
+        if not isinstance(route, APIRoute):
+            continue
+        metadata = _get_http_metadata(route.endpoint)
+        declared = metadata.raises if metadata is not None else ()
+        yield route, _ordered_identity_union(inherited, declared)
+
+
+def _with_http_metadata(
+    endpoint: Callable[..., Any],
+    faults: Sequence[AnyFault],
+    *,
+    replace: bool = False,
+) -> Callable[..., Any]:
+    existing = _get_http_metadata(endpoint)
+    inherited = () if replace or existing is None else existing.raises
+    metadata = _HttpMetadata(raises=_ordered_identity_union(inherited, faults))
+
+    if iscoroutinefunction(endpoint):
+
+        @wraps(endpoint)
+        async def async_endpoint(*args: Any, **kwargs: Any) -> Any:
+            return await endpoint(*args, **kwargs)
+
+        marked = async_endpoint
+    else:
+
+        @wraps(endpoint)
+        def sync_endpoint(*args: Any, **kwargs: Any) -> Any:
+            return endpoint(*args, **kwargs)
+
+        marked = sync_endpoint
+
+    setattr(marked, _HTTP_METADATA_ATTRIBUTE, metadata)
+    return marked
 
 
 def _validate_http_faults(
