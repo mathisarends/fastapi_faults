@@ -8,7 +8,7 @@ from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
-from ._types import (
+from .types import (
     CODE_PATTERN,
     Detail,
     Extensions,

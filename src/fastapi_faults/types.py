@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import Protocol, TypeVar
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel
@@ -9,27 +9,25 @@ type JsonScalar = bool | int | float | str | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
 type OpenAPIHeader = Mapping[str, JsonValue]
 
-ExceptionT_contra = TypeVar("ExceptionT_contra", bound=Exception, contravariant=True)
 
-
-class DetailRenderer(Protocol[ExceptionT_contra]):
+class DetailRenderer[ExceptionT: Exception](Protocol):
     """Render occurrence-specific human-readable detail."""
 
-    def __call__(self, exception: ExceptionT_contra, /) -> str | None: ...
+    def __call__(self, exception: ExceptionT, /) -> str | None: ...
 
 
-class ExtensionsRenderer(Protocol[ExceptionT_contra]):
+class ExtensionsRenderer[ExceptionT: Exception](Protocol):
     """Render typed or JSON-native Problem Details extension members."""
 
     def __call__(
-        self, exception: ExceptionT_contra, /
+        self, exception: ExceptionT, /
     ) -> Mapping[str, JsonValue] | BaseModel: ...
 
 
-class HeadersRenderer(Protocol[ExceptionT_contra]):
+class HeadersRenderer[ExceptionT: Exception](Protocol):
     """Render response headers for a fault occurrence."""
 
-    def __call__(self, exception: ExceptionT_contra, /) -> Mapping[str, str]: ...
+    def __call__(self, exception: ExceptionT, /) -> Mapping[str, str]: ...
 
 
 type Detail[ExceptionT: Exception] = str | DetailRenderer[ExceptionT] | None

@@ -3,9 +3,9 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ValidationError
 
-from ._types import FaultConfigurationError, JsonValue
 from .fault import Fault, _freeze_headers
 from .problem import Problem
+from .types import FaultConfigurationError, JsonValue
 
 type AnyFault = Fault[Any]
 

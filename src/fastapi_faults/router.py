@@ -12,17 +12,17 @@ from fastapi.types import DecoratedCallable
 from starlette.routing import compile_path
 from starlette.websockets import WebSocketState
 
-from ._types import FaultConfigurationError
 from .fault import Fault
 from .registry import AnyFault, AnyWebSocketFault, FaultRegistry
 from .rendering import render_problem
+from .types import FaultConfigurationError
 from .websocket import WebSocketFault
 
 _METADATA_ATTRIBUTE = "__fastapi_faults_websocket__"
 _HTTP_METADATA_ATTRIBUTE = "__fastapi_faults_http__"
 _ENDPOINT_ENTERED_SCOPE_KEY = "fastapi_faults.websocket_endpoint_entered"
 _INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
-_logger = logging.getLogger("fastapi_faults")
+logger = logging.getLogger("fastapi_faults")
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,7 +480,7 @@ async def _handle_endpoint_exception(
         try:
             reason = close_fault._render_reason(exception)
         except Exception:
-            _logger.exception(
+            logger.exception(
                 "WebSocket fault reason callback failed",
                 extra={
                     "close_code": close_fault.close_code,

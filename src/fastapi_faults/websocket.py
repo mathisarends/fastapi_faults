@@ -1,16 +1,14 @@
 import builtins
 from dataclasses import dataclass, field
-from typing import Protocol, TypeVar
+from typing import Protocol
 
-from ._types import FaultConfigurationError
-
-ExceptionT_contra = TypeVar("ExceptionT_contra", bound=Exception, contravariant=True)
+from .types import FaultConfigurationError
 
 
-class ReasonRenderer(Protocol[ExceptionT_contra]):
+class ReasonRenderer[ExceptionT: Exception](Protocol):
     """Render the advisory reason of a WebSocket close frame."""
 
-    def __call__(self, exception: ExceptionT_contra, /) -> str | None: ...
+    def __call__(self, exception: ExceptionT, /) -> str | None: ...
 
 
 type Reason[ExceptionT: Exception] = str | ReasonRenderer[ExceptionT] | None

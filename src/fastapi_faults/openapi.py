@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
-from ._types import FaultConfigurationError, JsonValue
 from .problem import Problem
 from .registry import AnyFault, FaultRegistry
 from .router import _iter_http_contracts
+from .types import FaultConfigurationError, JsonValue
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
 _HTTP_METHODS = frozenset(

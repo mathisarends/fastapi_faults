@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ._types import CODE_PATTERN, JsonValue, is_absolute_uri, is_uri_reference
+from .types import CODE_PATTERN, JsonValue, is_absolute_uri, is_uri_reference
 
 
 class Problem(BaseModel):

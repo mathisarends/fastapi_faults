@@ -14,7 +14,6 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import ExceptionHandler
 
-from ._types import FaultConfigurationError, JsonValue
 from .openapi import install_openapi
 from .registry import FaultRegistry
 from .rendering import render_problem
@@ -28,8 +27,9 @@ from .router import (
     _iter_websocket_contracts,
     _resolve_declared,
 )
+from .types import FaultConfigurationError, JsonValue
 
-_logger = logging.getLogger("fastapi_faults")
+logger = logging.getLogger("fastapi_faults")
 
 
 def install_handlers(
@@ -149,7 +149,7 @@ def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
         try:
             problem, headers = render_problem(fault, exception, type_uri=type_uri)
         except Exception:
-            _logger.exception(
+            logger.exception(
                 "Fault rendering callback failed",
                 extra={
                     "code": fault.code,
@@ -224,7 +224,7 @@ def _response_validation_handler(registry: FaultRegistry) -> ExceptionHandler:
         del request
         if not isinstance(exception, ResponseValidationError):
             raise exception
-        _logger.error(
+        logger.error(
             "FastAPI response validation failed",
             exc_info=(type(exception), exception, exception.__traceback__),
         )
@@ -239,7 +239,7 @@ def _unhandled_handler(registry: FaultRegistry) -> ExceptionHandler:
     ) -> Response:
         if isinstance(connection, WebSocket):
             raise exception
-        _logger.error(
+        logger.error(
             "Unhandled application exception",
             exc_info=(type(exception), exception, exception.__traceback__),
         )

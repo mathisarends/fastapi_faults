@@ -16,3 +16,4 @@ project follows Semantic Versioning after the first stable release.
 - Opt-in runtime/OpenAPI and undeclared-fault testing helpers.
 - CPython 3.12, 3.13, and 3.14 compatibility gates.
 - MIT license and distribution metadata.
+- Python 3.12-native generic syntax and a public `fastapi_faults.types` module.

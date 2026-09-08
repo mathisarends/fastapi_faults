@@ -8,11 +8,11 @@ from fastapi import FastAPI, Request
 from starlette.routing import compile_path
 from starlette.types import ExceptionHandler
 
-from ._types import FaultConfigurationError
 from .fault import Fault
 from .openapi import _effective_http_contracts
 from .registry import AnyFault, FaultRegistry
 from .router import _INSTALLED_REGISTRY_STATE_KEY
+from .types import FaultConfigurationError
 
 
 class ResponseLike(Protocol):

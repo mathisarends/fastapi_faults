@@ -4,8 +4,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Self, cast
 from urllib.parse import urlsplit
 
-from ._types import FaultConfigurationError, is_absolute_uri
 from .fault import Fault
+from .types import FaultConfigurationError, is_absolute_uri
 from .websocket import WebSocketFault
 
 if TYPE_CHECKING:
