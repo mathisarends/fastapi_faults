@@ -55,9 +55,10 @@ tests are committed together.
   guidance from `SPEC.md`.
 - [x] Add the runnable `examples/minimal` application.
 - [x] Add a changelog and record the initial public contract.
-- [ ] Add a license and complete package metadata such as authors, license,
-  project URLs, and repository links.
-- [ ] Install the built wheel in a clean environment and run the documented
+- [x] Complete package metadata with author, classifiers, project URLs, and
+  repository links.
+- [ ] Choose and add the project license and its package classifier.
+- [x] Install the built wheel in a clean environment and run the documented
   minimal example there.
 
 ## Already implemented
