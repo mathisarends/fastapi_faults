@@ -195,6 +195,7 @@ from fastapi_faults import (
     FaultRouter,
     Problem,
     Router,
+    WebSocketFault,
 )
 ```
 
@@ -295,6 +296,7 @@ the schema.
 FaultRegistry(
     *,
     faults: Sequence[Fault],
+    websocket_faults: Sequence[WebSocketFault] = (),
     name: str | None = None,
     type_base: str | None = None,
 )
@@ -307,6 +309,11 @@ Responsibilities:
 - install runtime exception handlers;
 - augment the existing FastAPI OpenAPI generator;
 - create bound `FaultRouter` instances through `registry.router(...)`.
+
+The same feature registry MAY own WebSocket close contracts. HTTP `Fault`
+definitions and `WebSocketFault` definitions form separate collision domains,
+so the same domain exception can intentionally have one mapping for each
+transport. WebSocket mappings resolve independently through Python MRO.
 
 `name` is optional diagnostic metadata. Feature registries SHOULD use a short,
 stable name such as `"browser"` or `"sessions"` so merge errors can identify
@@ -401,6 +408,8 @@ unpack fault tuples or lists. It MUST:
   registries (diamond composition);
 - reject distinct definitions that collide by exception class, code, final
   type URI, or schema name;
+- merge WebSocket definitions in the same deterministic order and reject
+  duplicate WebSocket exception classes or application close codes;
 - retain an explicit `Fault.type` unchanged;
 - retain a type URI already resolved by a feature registry's `type_base`; and
 - use the merged registry's `type_base` only as the fallback for unresolved
@@ -489,7 +498,9 @@ For unresolved feature registries, the router records the fault contract and
 defers final response-schema compilation until the composed application
 registry is installed. It MUST NOT emit an incomplete placeholder schema.
 
-WebSocket routes do not accept `raises` in v1.
+WebSocket routes use the separate keywords `handshake_raises` and `closes`.
+They do not accept HTTP `raises`, because failures before and after
+`websocket.accept()` have different wire semantics. See section 4.7.
 
 ### 4.5 Stock `APIRouter` escape hatch
 
@@ -543,6 +554,80 @@ to handle, installation MUST fail by default and identify the class. Known
 unmodified FastAPI default handlers are replaced when their normalization is
 enabled. A future explicit conflict policy MAY permit replacement; silent
 replacement is forbidden.
+
+### 4.7 WebSocket faults
+
+RFC 9457 describes HTTP responses, not messages or close frames on an accepted
+WebSocket. V1 therefore models WebSocket termination separately:
+
+```python
+WebSocketFault(
+    exception: type[Exception],
+    *,
+    close_code: int,
+    reason: str | Callable[[Exception], str | None] | None = None,
+    description: str | None = None,
+)
+```
+
+Application-defined `close_code` values MUST be between 4000 and 4999 and MUST
+be unique within a composed registry. A static or rendered reason MUST fit the
+WebSocket control-frame limit of 123 UTF-8 bytes. It MUST NOT default to
+`str(exception)`. A callback failure closes an accepted connection with 1011
+and no reason.
+
+Feature registries declare both transport mappings without informal tuples:
+
+```python
+SESSION_EXPIRED_WS = WebSocketFault(
+    SessionExpired,
+    close_code=4001,
+    reason="Session expired",
+)
+
+session_faults = FaultRegistry(
+    name="sessions",
+    faults=[SESSION_EXPIRED],
+    websocket_faults=[SESSION_EXPIRED_WS],
+)
+```
+
+The router API distinguishes handshake denial from an accepted connection:
+
+```python
+@router.websocket(
+    "/{session_id}/events",
+    handshake_raises=[SESSION_NOT_FOUND],
+    closes=[SESSION_EXPIRED_WS],
+)
+async def session_events(websocket: WebSocket, session_id: UUID) -> None:
+    await websocket.accept()
+    ...
+```
+
+Before `accept()`, a declared `handshake_raises` fault is rendered as the same
+RFC 9457 HTTP response used by a normal route. This requires the ASGI WebSocket
+Denial Response extension. If the extension is missing, the library MUST fail
+with an actionable runtime error rather than silently change the declared HTTP
+status or payload.
+
+After `accept()`, a declared `closes` fault emits only a WebSocket close frame.
+It MUST NOT attempt to send an RFC 9457 object or invent an application message
+envelope. An exception raised after the connection is already closed is not
+handled. Undeclared exceptions are re-raised for normal server error handling.
+
+Router-level `handshake_raises` and `closes` defaults are unioned with route
+definitions using the same outer-to-inner, identity-preserving order as HTTP
+faults. Every referenced definition MUST belong to the bound feature registry.
+Domain exceptions raised by FastAPI dependencies before endpoint entry are
+eligible only for `handshake_raises` and are handled through the installed
+registry.
+
+OpenAPI does not describe WebSocket operations. V1 retains WebSocket fault
+metadata for runtime enforcement and testing but does not add it to OpenAPI.
+AsyncAPI generation and application-specific WebSocket error messages are
+non-goals. Additional rationale and operational caveats live in
+`WEBSOCKETS.md`.
 
 ## 5. Problem Details profile
 
@@ -834,10 +919,12 @@ Test code follows the production structure so ownership stays obvious:
 
 ```text
 src/fastapi_faults/fault.py       -> tests/unit/test_fault.py
+src/fastapi_faults/websocket.py   -> tests/unit/test_websocket.py
 src/fastapi_faults/registry.py    -> tests/unit/test_registry.py
 src/fastapi_faults/rendering.py   -> tests/unit/test_rendering.py
 src/fastapi_faults/handlers.py    -> tests/integration/test_handlers.py
 src/fastapi_faults/router.py      -> tests/integration/test_router.py
+src/fastapi_faults/router.py      -> tests/integration/test_websocket.py
 src/fastapi_faults/openapi.py     -> tests/contract/test_openapi.py
 ```
 
@@ -887,7 +974,8 @@ silently drop new FastAPI parameters.
 - changing domain exceptions to HTTP-aware classes;
 - inferring exceptions from source code or type annotations;
 - response success envelopes;
-- GraphQL, WebSocket, XML Problem Details, or non-ASGI integrations;
+- GraphQL, XML Problem Details, or non-ASGI integrations;
+- application-specific WebSocket message envelopes or AsyncAPI generation;
 - automatic localization;
 - automatically hosting HTML pages for problem type URIs;
 - retry orchestration or client SDK generation;
@@ -911,6 +999,7 @@ silently drop new FastAPI parameters.
 │       ├── _types.py            # protocols and JSON value types
 │       ├── fault.py             # immutable Fault definition
 │       ├── problem.py           # Problem and built-in problem models
+│       ├── websocket.py         # immutable WebSocket close definition
 │       ├── registry.py          # validation, resolution, composition
 │       ├── rendering.py         # exception -> validated problem payload
 │       ├── handlers.py          # FastAPI/Starlette handlers
@@ -924,16 +1013,19 @@ silently drop new FastAPI parameters.
 │   │   ├── test_handlers.py
 │   │   ├── test_http_exceptions.py
 │   │   ├── test_request_validation.py
-│   │   └── test_router.py
+│   │   ├── test_router.py
+│   │   └── test_websocket.py
 │   └── unit/
 │       ├── test_fault.py
 │       ├── test_problem.py
 │       ├── test_registry.py
-│       └── test_rendering.py
+│       ├── test_rendering.py
+│       └── test_websocket.py
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
 ├── SPEC.md
+├── WEBSOCKETS.md
 ├── pyproject.toml
 └── uv.lock
 ```
@@ -955,6 +1047,7 @@ src/fastapi_faults/
 ├── _types.py            # protocols and JSON value types
 ├── fault.py             # immutable Fault definition
 ├── problem.py           # Problem and built-in problem models
+├── websocket.py         # immutable WebSocket close definition
 ├── registry.py          # validation, resolution, composition
 ├── rendering.py         # exception -> validated problem payload
 ├── handlers.py          # FastAPI/Starlette handlers
@@ -990,6 +1083,10 @@ V1 is complete only when all of the following are true:
 13. Required CI passes on Python 3.12, 3.13, and 3.14.
 14. The built wheel installs into a clean environment and runs the minimal
     example from section 3.
+15. Declared WebSocket handshake faults produce RFC 9457 denial responses and
+    declared post-accept faults produce their exact close code and reason.
+16. WebSocket dependency failures, undeclared exceptions, unsupported denial
+    responses, callback failures, and UTF-8 reason limits are covered by tests.
 
 ## 14. Deliberate decisions and rejected alternatives
 
@@ -1055,8 +1152,10 @@ moving to the next phase.
 2. Implement immutable `Fault` validation from section 4.1.
 3. Implement `Problem` and typed extension serialization.
 4. Implement immutable `FaultRegistry`, deterministic `merge()`, identity
-   deduplication, collision diagnostics, type-URI resolution, and MRO lookup.
-5. Complete the corresponding unit tests before FastAPI integration.
+   deduplication, collision diagnostics, type-URI resolution, HTTP and
+   WebSocket MRO lookup.
+5. Implement immutable `WebSocketFault` validation and close-reason limits.
+6. Complete the corresponding unit tests before FastAPI integration.
 
 ### Phase 3: Runtime integration
 
@@ -1077,6 +1176,8 @@ moving to the next phase.
 4. Detect unknown fault definitions and application registries missing a
    feature registry.
 5. Add the stock `APIRouter` escape hatch.
+6. Implement WebSocket `handshake_raises` and `closes`, including dependency
+   failures before endpoint entry and accepted-connection state handling.
 
 ### Phase 5: OpenAPI compiler
 
