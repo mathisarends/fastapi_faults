@@ -1,0 +1,11 @@
+[project]
+name = "fastapi-faults"
+version = "0.1.0"
+description = "RFC 9457 problem details for ergonomic FastAPI error contracts"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
