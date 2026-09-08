@@ -57,7 +57,7 @@ tests are committed together.
 - [x] Add a changelog and record the initial public contract.
 - [x] Complete package metadata with author, classifiers, project URLs, and
   repository links.
-- [ ] Choose and add the project license and its package classifier.
+- [x] Choose and add the project license and its package classifier.
 - [x] Install the built wheel in a clean environment and run the documented
   minimal example there.
 

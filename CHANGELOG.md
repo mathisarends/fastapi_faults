@@ -15,3 +15,4 @@ project follows Semantic Versioning after the first stable release.
 - OpenAPI 3.1 response and schema generation with conflict detection.
 - Opt-in runtime/OpenAPI and undeclared-fault testing helpers.
 - CPython 3.12, 3.13, and 3.14 compatibility gates.
+- MIT license and distribution metadata.

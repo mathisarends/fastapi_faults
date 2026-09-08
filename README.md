@@ -196,3 +196,7 @@ uv build
 
 The complete public and behavioral contract is in [SPEC.md](SPEC.md). Remaining
 release work is tracked in [MISSING.md](MISSING.md).
+
+## License
+
+Released under the [MIT License](LICENSE).
