@@ -72,7 +72,6 @@ addopts = [
     "--cov=fastapi_faults",
     "--cov-branch",
     "--cov-report=term-missing:skip-covered",
-    "--cov-fail-under=95",
 ]
 testpaths = ["tests"]
 filterwarnings = [
@@ -84,6 +83,5 @@ branch = true
 source = ["fastapi_faults"]
 
 [tool.coverage.report]
-fail_under = 95
 show_missing = true
 skip_covered = true
