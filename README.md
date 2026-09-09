@@ -271,9 +271,10 @@ uv run pytest
 uv build
 ```
 
-The runnable sample lives in [`examples/minimal`](examples/minimal). The full
-public and behavioral contract is documented in [SPEC.md](SPEC.md), release
-progress in [MISSING.md](MISSING.md), and notable changes in
+Runnable samples live in [`examples/minimal`](examples/minimal) and the
+feature-oriented [`examples/namespaced`](examples/namespaced) showcase. The
+full public and behavioral contract is documented in [SPEC.md](SPEC.md),
+release progress in [MISSING.md](MISSING.md), and notable changes in
 [CHANGELOG.md](CHANGELOG.md).
 
 ## License
