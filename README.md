@@ -272,8 +272,7 @@ uv build
 ```
 
 Runnable samples live in [`examples/minimal`](examples/minimal) and the
-feature-oriented [`examples/namespaced`](examples/namespaced) showcase. Release
-readiness is tracked in [MISSING.md](MISSING.md).
+feature-oriented [`examples/namespaced`](examples/namespaced) showcase.
 
 ## License
 
