@@ -1,13 +1,20 @@
 from collections.abc import Iterator, Mapping, Sequence
+from typing import Protocol, runtime_checkable
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
+from starlette.routing import BaseRoute
 
 from fastapi_faults.registry import AnyFault, FaultRegistry
 from fastapi_faults.types import FaultConfigurationError
 
 FAULTS_EXTENSION = "x-fastapi-faults"
 INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
+
+
+@runtime_checkable
+class _IncludedRouterRoute(Protocol):
+    original_router: APIRouter
 
 
 def iter_http_contracts(
@@ -18,12 +25,11 @@ def iter_http_contracts(
 
 
 def _walk_http_contracts(
-    routes: Sequence[object], registry: FaultRegistry
+    routes: Sequence[BaseRoute], registry: FaultRegistry
 ) -> Iterator[tuple[APIRoute, tuple[AnyFault, ...]]]:
     for route in routes:
-        included = getattr(route, "original_router", None)
-        if isinstance(included, APIRouter):
-            yield from _walk_http_contracts(included.routes, registry)
+        if isinstance(route, _IncludedRouterRoute):
+            yield from _walk_http_contracts(route.original_router.routes, registry)
             continue
         if isinstance(route, APIRoute):
             yield route, _faults_from_responses(route, registry)
