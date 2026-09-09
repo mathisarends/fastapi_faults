@@ -26,7 +26,10 @@ def make_app(*, declared: bool) -> tuple[FastAPI, Fault[Missing]]:
     )
     router = APIRouter()
 
-    @router.get("/resources/{resource_id}", responses=registry.responses(missing) if declared else {})
+    @router.get(
+        "/resources/{resource_id}",
+        responses=registry.responses(missing) if declared else {},
+    )
     async def endpoint(resource_id: int) -> None:
         del resource_id
         raise Missing

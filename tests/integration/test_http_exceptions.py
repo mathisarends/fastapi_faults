@@ -55,7 +55,9 @@ def test_declared_fault_does_not_change_custom_success_response_class() -> None:
     faults = registry(missing)
     router = APIRouter()
 
-    @router.get("/text", responses=faults.responses(missing), response_class=PlainTextResponse)
+    @router.get(
+        "/text", responses=faults.responses(missing), response_class=PlainTextResponse
+    )
     async def text() -> str:
         return "ready"
 

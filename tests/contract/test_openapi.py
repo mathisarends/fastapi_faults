@@ -1,4 +1,4 @@
-﻿from typing import Any, cast
+from typing import Any, cast
 
 import pytest
 from fastapi import APIRouter, FastAPI, Query

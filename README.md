@@ -272,10 +272,8 @@ uv build
 ```
 
 Runnable samples live in [`examples/minimal`](examples/minimal) and the
-feature-oriented [`examples/namespaced`](examples/namespaced) showcase. The
-full public and behavioral contract is documented in [SPEC.md](SPEC.md),
-release progress in [MISSING.md](MISSING.md), and notable changes in
-[CHANGELOG.md](CHANGELOG.md).
+feature-oriented [`examples/namespaced`](examples/namespaced) showcase. Release
+readiness is tracked in [MISSING.md](MISSING.md).
 
 ## License
 
