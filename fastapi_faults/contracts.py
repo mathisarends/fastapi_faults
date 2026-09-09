@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute
 
-from fastapi_faults.registry import AnyFault, FaultRegistry
 from fastapi_faults.types import FaultConfigurationError
+
+if TYPE_CHECKING:
+    from fastapi_faults.registry import AnyFault, FaultRegistry
 
 FAULTS_EXTENSION = "x-fastapi-faults"
 INSTALLED_REGISTRY_STATE_KEY = "_fastapi_faults_registry"
@@ -42,7 +46,8 @@ def _faults_from_responses(
     result: list[AnyFault] = []
     seen: set[int] = set()
 
-    for response in route.responses.values():
+    for configured_response in route.responses.values():
+        response: object = configured_response
         if not isinstance(response, Mapping):
             continue
         identities = response.get(FAULTS_EXTENSION, ())

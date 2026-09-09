@@ -33,8 +33,8 @@ no drift between what an endpoint documents and what it actually returns.
 - **One source of truth** â€” status, stable code, title, detail, headers, examples,
   and schemas live in one `Fault`.
 - **Real Problem Details** â€” errors use the RFC 9457 media type and structure.
-- **OpenAPI that stays honest** â€” `raises=[...]` produces the matching response
-  documentation automatically.
+- **OpenAPI that stays honest** â€” `responses=registry.responses(...)` produces
+  the matching response documentation automatically.
 - **Typed extension members** â€” Pydantic models validate custom problem fields
   and generate their schemas.
 - **Feature-local design** â€” define faults beside a feature, then compose

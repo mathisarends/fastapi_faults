@@ -3,15 +3,20 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 from urllib.parse import urlsplit
 
-from fastapi_faults.fault import Fault
-from fastapi_faults.types import FaultConfigurationError, is_absolute_uri
-from fastapi_faults.validation import unique_instances
+from fastapi import FastAPI
 
-if TYPE_CHECKING:
-    from fastapi import FastAPI
+from fastapi_faults.fault import Fault
+from fastapi_faults.handlers import install_handlers
+from fastapi_faults.openapi import compile_responses
+from fastapi_faults.types import (
+    FaultConfigurationError,
+    OpenAPIResponses,
+    is_absolute_uri,
+)
+from fastapi_faults.validation import unique_instances
 
 type AnyFault = Fault[Any]
 
@@ -155,10 +160,8 @@ class FaultRegistry:
             )
             raise FaultConfigurationError(msg)
 
-    def responses(self, *faults: AnyFault) -> dict[int | str, dict[str, Any]]:
+    def responses(self, *faults: AnyFault) -> OpenAPIResponses:
         """Compile validated fault responses for FastAPI's ``responses=``."""
-        from fastapi_faults.openapi import compile_responses
-
         return compile_responses(self, faults)
 
     def install(
@@ -170,8 +173,6 @@ class FaultRegistry:
         include_unhandled_error: bool = True,
     ) -> None:
         """Install runtime handlers and OpenAPI integration."""
-        from fastapi_faults.handlers import install_handlers
-
         install_handlers(
             self,
             app,

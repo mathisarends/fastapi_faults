@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import (
@@ -16,9 +18,11 @@ from starlette.types import ExceptionHandler
 
 from fastapi_faults.contracts import INSTALLED_REGISTRY_STATE_KEY, iter_http_contracts
 from fastapi_faults.openapi import install_openapi
-from fastapi_faults.registry import FaultRegistry
 from fastapi_faults.rendering import render_problem
 from fastapi_faults.types import FaultConfigurationError, JsonValue
+
+if TYPE_CHECKING:
+    from fastapi_faults.registry import FaultRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +106,7 @@ def _validate_route_contracts(registry: FaultRegistry, app: FastAPI) -> None:
 
 
 def _domain_handler(registry: FaultRegistry) -> ExceptionHandler:
-    async def handler(
-        connection: Request, exception: Exception
-    ) -> Response:
+    async def handler(connection: Request, exception: Exception) -> Response:
         fault = registry.resolve(exception)
         if fault is None:
             raise exception

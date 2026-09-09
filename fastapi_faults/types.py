@@ -8,6 +8,8 @@ from pydantic import BaseModel
 type JsonScalar = bool | int | float | str | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
 type OpenAPIHeader = Mapping[str, JsonValue]
+type OpenAPIResponse = dict[str, JsonValue]
+type OpenAPIResponses = dict[int | str, OpenAPIResponse]
 
 
 class DetailRenderer[ExceptionT: Exception](Protocol):

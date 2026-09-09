@@ -95,9 +95,5 @@ Where the API still creates friction:
 5. Contract errors that depend on generated OpenAPI may not surface until
    `app.openapi()` is first called. A startup validation/compile option would
    shorten the feedback loop.
-6. The README currently mentions a `raises=[...]` decorator API in two places,
-   while the implemented public API uses `responses=registry.responses(...)`.
-   That mismatch is likely to send users searching for a nonexistent feature.
-
 The accompanying integration test locks down routing, runtime Problem Details,
 the merged registry, and generated OpenAPI.

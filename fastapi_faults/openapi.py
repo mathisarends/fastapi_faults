@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import copy
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -12,8 +14,15 @@ from fastapi_faults.contracts import (
     iter_http_contracts,
 )
 from fastapi_faults.problem import Problem
-from fastapi_faults.registry import AnyFault, FaultRegistry
-from fastapi_faults.types import FaultConfigurationError, JsonValue
+from fastapi_faults.types import (
+    FaultConfigurationError,
+    JsonValue,
+    OpenAPIResponse,
+    OpenAPIResponses,
+)
+
+if TYPE_CHECKING:
+    from fastapi_faults.registry import AnyFault, FaultRegistry
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
 _HTTP_METHODS = frozenset(
@@ -91,7 +100,7 @@ def compile_document(
 def compile_responses(
     registry: FaultRegistry,
     faults: Sequence[AnyFault],
-) -> dict[int | str, dict[str, Any]]:
+) -> OpenAPIResponses:
     grouped: dict[int, list[AnyFault]] = {}
     for fault in faults:
         if not registry.contains(fault):
@@ -165,7 +174,7 @@ def _base_problem_schema() -> dict[str, Any]:
     }
 
 
-def _response_for_faults(faults: Sequence[AnyFault]) -> dict[str, Any]:
+def _response_for_faults(faults: Sequence[AnyFault]) -> OpenAPIResponse:
     references = [
         f"#/components/schemas/{fault.effective_schema_name}" for fault in faults
     ]
@@ -185,7 +194,7 @@ def _response_for_faults(faults: Sequence[AnyFault]) -> dict[str, Any]:
         }
         description = "Possible problems: " + ", ".join(fault.title for fault in faults)
 
-    response: dict[str, Any] = {
+    response: OpenAPIResponse = {
         "description": description,
         "content": {_PROBLEM_MEDIA_TYPE: {"schema": schema}},
     }
@@ -303,6 +312,8 @@ def effective_http_contracts(
     app: FastAPI, registry: FaultRegistry | None = None
 ) -> list[tuple[str, set[str], tuple[AnyFault, ...]]]:
     if registry is None:
+        from fastapi_faults.registry import FaultRegistry
+
         candidate = getattr(app.state, INSTALLED_REGISTRY_STATE_KEY, None)
         if not isinstance(candidate, FaultRegistry):
             msg = "install a FaultRegistry before reading route contracts"
