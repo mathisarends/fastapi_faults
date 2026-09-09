@@ -24,10 +24,6 @@ domain exception  â”€â”€â–¶  Fault  â”€â”€â–¶  runti
 No duplicated `responses={...}` dictionaries, no process-global registry, and
 no drift between what an endpoint documents and what it actually returns.
 
-> [!IMPORTANT]
-> The project is currently **pre-release**. The public contract is taking shape,
-> but breaking changes are still possible before 1.0.
-
 ## Why fastapi-faults?
 
 - **One source of truth** â€” status, stable code, title, detail, headers, examples,
@@ -46,16 +42,10 @@ no drift between what an endpoint documents and what it actually returns.
 
 ## Quickstart
 
-Install the current development version from GitHub:
+Install the package from PyPI:
 
 ```console
-uv add "fastapi-faults @ git+https://github.com/mathisarends/fastapi_faults.git"
-```
-
-Or with `pip`:
-
-```console
-python -m pip install "fastapi-faults @ git+https://github.com/mathisarends/fastapi_faults.git"
+pip install fastapi_faults
 ```
 
 Define a domain exception, map it once, and declare it on the route that can
